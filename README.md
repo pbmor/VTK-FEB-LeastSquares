@@ -1,5 +1,6 @@
 # RunVTK
-Run VTK files
+Run VTK files.
+
 Currently three scripts are included.
   VTKcurv.py
   VTKcurvmean.py
