@@ -193,7 +193,7 @@ def calStrains(flist,ref,prefix='Strains/',FixAndRotate=False):
         CurvG = curvgauss.GetOutput()
         CurvG.GetPointData().GetScalars()
         CDG = np.asarray(CurvG.GetPointData().GetArray(5)) #What is the 5 for?  
-
+        print(CurvG.GetPointData())
 
         # Define Mean Curvature
         curvmean = vtk.vtkCurvatures()
