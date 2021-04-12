@@ -5,25 +5,212 @@ import vtk
 from vtk.util.numpy_support import vtk_to_numpy
 from vtk.numpy_interface import dataset_adapter as dsa
 
-#It is preferable to use spaces instead of tab characters. This avoids potential issues.
 
-# Find rotation matrix from vector x to vector y
-def rot_mat(x,y):
-    xMag = np.linalg.norm(x)
-    x = x/xMag
-    yMag = np.linalg.norm(y)
-    y = y/yMag
-    b = x+y
-    bMag = np.linalg.norm(b)
-    b = b/bMag
-    R = (np.identity(3)-2*(b*b.T))*(np.identity(3)-2*(x*x.T))
-    return R
 
-def calStrains(flist,ref,refN,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
+
+
+def OrderList(flist,N,ref,refN):
+    # Order filenames so that reference frame goes first
+    Fno = np.zeros(N)
+    FId = np.zeros(N)
+
+    FListOrdered = [None]*N
+    common = os.path.commonprefix(flist)
+    for i, Fname in enumerate(flist):
+        X = Fname.replace(common,'')
+        X = X.replace('.vtk','')
+        X = np.fromstring(X, dtype=int, sep=' ')
+        #Get list of frame labels
+        Fno[i] = X
+        # Get label of reference frame
+        if Fname==ref:
+            refN = X
+    # Sort frame labels
+    Fno.sort()
+    
+    #Find Id of reference frame
+    for i,X in enumerate(Fno):
+        if X==refN:
+            RefId = i
+
+
+    # Sort reference area to be first in list
+    FId[0:N-RefId] = Fno[RefId:N]
+    FId[N-RefId:N]   = Fno[0:RefId]
+
+    # Get list of file names in new order
+    for i,F in enumerate(FId):
+        for Fname in flist:
+            X = Fname.replace(common,'')
+            X = X.replace('.vtk','')
+            X = np.fromstring(X, dtype=int, sep=' ')
+            if X[0] ==F:
+                FListOrdered[i] = Fname
+
+    return FListOrdered, FId
+
+
+def FixAndRotateMesh(polydata,Points,NP):
+    PointsFixed = np.zeros((NP,3))
+
+    # Find mid points of current frameframe
+    Ranges = np.array(polydata.GetPoints().GetBounds())
+    Mids = np.zeros((3))
+    Mids[0] = np.mean(Ranges[0:2])
+    Mids[1] = np.mean(Ranges[2:4])
+    Mids[2] = np.mean(Ranges[4:6])
+
+    for i in range(NP):
+        # Define points with the centre fixed at (0,0,0)
+        PointsFixed[i,:] = Points[i,:] - Mids        
+
+    ##############################
+    # Rotate Mesh
+    PointsRotated2 = np.zeros((3,25,36))
+    centre_line = np.zeros((3,25))
+    Points2 = np.zeros((3,25,36))
+
+    Pointsb = PointsFixed.T
+    for i in range(3):
+     for j in range(25):
+      for k in range(36):
+       Points2[i,j,k] = Pointsb[i,((j)%25+k*25)%900]
+
+    for i in range(3):
+        for j in range(25):
+            centre_line[i,j] = np.mean(Points2[i,j,:])
+    
+    # Find Rotation Matrix
+    a   = centre_line[:,13]
+    mag = np.linalg.norm(a)
+    a   = a/mag
+    b   = [0,0,1]
+    v   = np.cross(a,b)
+    c   = np.dot(a,b)
+    vx  = [[0,-v[2],v[1]],[v[2],0,-v[0]],[-v[1],v[0],0]]
+    vx2 = np.matmul(vx,vx)
+    R   = np.identity(3)+vx+vx2*(1/(1+c))
+
+    # Find Rotated Points
+    RPoints = np.matmul(R,Pointsb)
+    PointsRotated = RPoints.T
+
+    for i in range(3):
+     for j in range(25):
+      for k in range(36):
+       PointsRotated2[i,j,k] = RPoints[i,((j)%25+k*25)%900]
+
+    return PointsRotated2
+
+def calDisp(polydata,Points,NP,RefPointsFixed):
+    #######################################
+    # Calculate Displacements and Find Points Fixed Root
+    TotDisp  = np.zeros((NP,3))
+    WallDisp = np.zeros((NP,3))
+    RootDisp = np.zeros((NP,3))
+    PointsFixed = np.zeros((NP,3))
+
+    # Define total displacement, relative to reference frame
+    for i in range(NP):
+        TotDisp[i,:] = polydata.GetPoint(i) - RefPointsFixed[i,:]
+
+    # Find mid points of current frameframe
+    Ranges = np.array(polydata.GetPoints().GetBounds())
+    Mids = np.zeros((3))
+    Mids[0] = np.mean(Ranges[0:2])
+    Mids[1] = np.mean(Ranges[2:4])
+    Mids[2] = np.mean(Ranges[4:6])
+
+
+    for i in range(NP):
+        # Define points with the centre fixed at (0,0,0)
+        PointsFixed[i,:] = Points[i,:] - Mids
+        # Define wall displacement with a fixed root
+        WallDisp[i,:]   = PointsFixed[i,:] - RefPointsFixed[i,:]
+        # Define displacement of root, without wall movement
+        RootDisp[i,:]   = TotDisp[i,:] - WallDisp[i,:]
+    return TotDisp, WallDisp, RootDisp
+
+def calAreaAndVol(polydata,Points,ThickData,NC,NP):
+    #######################################
+    # Define Properties: Areas and Volumes
+
+    TotalWallArea    = 0
+    TotalWallVolume  = 0
+    TotalLumenVolume = 0
+    xRing = np.zeros((25,37))
+    yRing = np.zeros((25,37))
+    XArea = np.zeros(25)
+    #Define Wall Area and Volume
+    for i in range(NC):
+        #Assign point id
+        t = np.array([polydata.GetCell(i).GetPointId(j) for j in range(3)])
+        #For each cell assign thickness for each point
+        Thicks = [ThickData[t[j]] for j in range(3)]
+        # Find and Sum Cell Areas and Volumes
+        CA = polydata.GetCell(i).ComputeArea()
+        CV = CA*(np.sum(Thicks))/3
+        TotalWallArea   += CA
+        TotalWallVolume += CV
+
+    PointsRotated = FixAndRotateMesh(polydata,Points,NP)
+
+    # Find coords of root cross sections
+    for i in range(25):
+        xRing[i,0:36] = PointsRotated[0,i,:]
+        yRing[i,0:36] = PointsRotated[1,i,:]
+        xRing[i,36]   = xRing[i,0]
+        yRing[i,36]   = yRing[i,0]
+
+    # Find Area of Cross section
+    for i in range(25):
+        for j in range(36):
+            XArea[i] +=(xRing[i,j]*yRing[i,j-1] - xRing[i,j-1]*yRing[i,j])/2
+
+    # Find Lumen Area
+    for i in range(24):
+        TotalLumenVolume += (np.mean(PointsRotated[2,(i+13)%25,:])-np.mean(PointsRotated[2,(i+13+1)%25,:]))*(XArea[i]+XArea[i+1])/2
+
+    return TotalWallArea, TotalWallVolume, TotalLumenVolume, XArea
+
+def calStrains(polydata, RA, NC):
+    I1 = np.zeros(NC)
+    J  = np.zeros(NC)
+
+    for i in range(NC):
+        Cell = np.array(polydata.GetCell(i).GetPoints().GetData())
+
+        # Define Reference Vectors
+        A1 = RA[i,0,:]
+        A2 = RA[i,1,:]
+
+        #Define Deformed Vectors
+        a1 = Cell[2,:]-Cell[0,:]
+        a2 = Cell[2,:]-Cell[1,:]
+
+        G      = np.array([[np.dot(A1,A1),np.dot(A1,A2)],[np.dot(A2,A1),np.dot(A2,A2)]])
+        invG   = np.linalg.inv(G)
+
+        A1dual = invG[0,0]*A1 + invG[0,1]*A2
+        A2dual = invG[1,0]*A1 + invG[1,1]*A2
+        F   = np.outer(a1,A1dual) + np.outer(a2,A2dual)
+        C   = np.dot(F.T,F)
+        C2  = np.dot(C,C)
+
+        # Define principle strains and J
+        trC         = C.trace()
+        trC2        = C2.trace()
+        I1[i]    = trC
+        J[i]     = np.sqrt((trC**2-trC2)/2)
+    
+    return J, I1
+
+
+
+def ProcessData(flist,ref,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
     print('##############################')
-    print('Starting calStrain Function')
+    print('Starting ProcessData Function')
     print('##############################')
-
 
     reader = vtk.vtkPolyDataReader()
     #################################
@@ -39,90 +226,66 @@ def calStrains(flist,ref,refN,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
 
     polydata = reader.GetOutput()
     dataset = polydata.GetPointData()
-    ThickData = vtk_to_numpy(polydata.GetPointData().GetArray(1))
+    RefPoints = vtk_to_numpy(polydata.GetPoints().GetData())
+    # Get Number of Points and Cells
     NP = polydata.GetNumberOfPoints()
     NC = polydata.GetNumberOfCells()
 
-    # Define Empyt Arrays
+    if not polydata.GetPointData().GetArray(1):
+        print('Warning Wall Thickness data is missing')
+        ThickData = np.zeros((NC,3))
+    else:
+        ThickData = vtk_to_numpy(polydata.GetPointData().GetArray(1))
+        
+    RefWallArea, RefWallVoliume, RefLumenVolume, RefXArea = calAreaAndVol(polydata,RefPoints,ThickData,NC,NP)
+    
+    # Define Empty Arrays for Reference Data
     RA = np.zeros((NC,2,3))
-    RefWallArea   = 0
-    RefWallVolume = 0
+
     for i in range(NC):
         Cells = vtk_to_numpy(polydata.GetCell(i).GetPoints().GetData())
+        # Define refernce cell vectors
         RA[i,0,:] = Cells[2,:]-Cells[0,:]
         RA[i,1,:] = Cells[2,:]-Cells[1,:]
 
-    RefPoints = vtk_to_numpy(polydata.GetPoints().GetData()) 
-
+    RefPointsFixed = np.zeros(RefPoints.shape)
+    
+    #Find Centre Points
     Ranges = np.array(polydata.GetPoints().GetBounds())
     Mids = np.zeros((3))
     Mids[0] = np.mean(Ranges[0:2])
     Mids[1] = np.mean(Ranges[2:4])
     Mids[2] = np.mean(Ranges[4:6])
     
-    RefPointsFixed = np.zeros(RefPoints.shape)
+    # Define points with mid point fixed at (0,0,0)
     for i in range(NP):
-        RefPointsFixed[i,:] = RefPoints[i,:] - Mids
-
-    for i in range(NC):
-        #Assign point id
-        t = np.array([polydata.GetCell(i).GetPointId(j) for j in range(3)])
-        #For each cell assign thickness for each point
-        Thicks = [ThickData[t[j]] for j in range(3)] 
-        CA = polydata.GetCell(i).ComputeArea()
-        CV = CA*(np.sum(Thicks))/3
-        RefWallArea   += CA
-        RefWallVolume += CV
-        
+        RefPointsFixed[i,:] = RefPoints[i,:] - Mids    
 
     ###########################################
     # Define Data At Every Time Frame
     ###########################################
+    #Numer of frames
     N = len(flist)
-    Time = np.zeros(N) 
+
+    # Empty arrays for deformed frames
+
+    Time          = np.zeros(N) 
     ValvePosition = np.zeros(N)
-    WallArea   = np.zeros(N)
-    WallVol    = np.zeros(N)
-    LumenVol   = np.zeros(N)
+    WallArea      = np.zeros(N)
+    WallVol       = np.zeros(N)
+    LumenVol      = np.zeros(N)
     WallAreaRatio = np.zeros(N)
     WallVolRatio  = np.zeros(N)
     LumenVolRatio = np.zeros(N)
     CrossArea     = np.zeros((N,25))
-    Pts       = np.zeros((N,NP,3))
+    Pts           = np.zeros((N,NP,3))
     
-    Fno = np.zeros(N)
-    FId = np.zeros(N)
-    RefId = 0
-    FListOrdered = [None]*N
-    common = os.path.commonprefix(flist)
-    for i, Fname in enumerate(flist): 
-        X = Fname.replace(common,'')
-        X = X.replace('.vtk','')
-        X = np.fromstring(X, dtype=int, sep=' ')
-        Fno[i] = X
-    Fno.sort()
-    for i,X in enumerate(Fno):
-        if X==refN:
-            RefId = i
+
+    # Re-order filename list to start with reference frame
+    FListOrdered, FId = OrderList(flist,N,ref,refN)
 
 
-    print(refN)
-    print(Fno)
-    print(RefId)
-    FId[0:N-RefId] = Fno[RefId:N]
-    FId[N-RefId:N]   = Fno[0:RefId]
-    print(FId)
-
-    for i,F in enumerate(FId):
-        for Fname in flist:
-            X = Fname.replace(common,'')
-            X = X.replace('.vtk','')
-            X = np.fromstring(X, dtype=int, sep=' ')
-            if X[0] ==F:
-                FListOrdered[i] = Fname
-
-    print(FListOrdered)
-
+    # Analyse each frame
     common = os.path.commonprefix(flist)
     for X,Fname in enumerate(FListOrdered):
         OpenX  = float(OF)-float(refN)
@@ -141,6 +304,8 @@ def calStrains(flist,ref,refN,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
         ######################################
         # Define File Data
         polydata  = reader.GetOutput()
+        
+        # Get time of frames
         if FId[0]<=FId[X]:
             Time[X] = float(FId[X])*float(FT) 
         else :
@@ -149,7 +314,11 @@ def calStrains(flist,ref,refN,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
             elif FId[X]-FId[X-1]>0:
                 Time[X] = Time[X-1]+(FId[X]-FId[X-1])*float(FT)
 
-        ThickData = vtk_to_numpy(polydata.GetPointData().GetArray(1))
+        if not polydata.GetPointData().GetArray(1):
+            print('Warning Wall Thickness data is missing')
+            ThickData = np.zeros((NC,3))
+        else:
+            ThickData = vtk_to_numpy(polydata.GetPointData().GetArray(1))
 
         #Check that the number of points and cells are consistent
         if NP != polydata.GetNumberOfPoints():
@@ -157,135 +326,31 @@ def calStrains(flist,ref,refN,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
         if NC != polydata.GetNumberOfCells():
             print('Warning: the number of cells between the reference and deformed frames differ')
 
-        #Create empty arrays
-        I1 = np.zeros((NC))
-        J = np.zeros((NC))
-        TotalVolume = 0
-        TotalArea = 0
+        # Save frames with open valve (defined to be 1, and 0 otherwise)
+        OpenX  = float(OF)-float(refN)
+        CloseX = float(CF)-float(refN)
+        if float(X)>=OpenX and float(X)<CloseX:
+            ValvePosition[X] = 1
+
 
         #Save Point coordinates to array to be saved
         Pts[X,:,:] = vtk_to_numpy(polydata.GetPoints().GetData())
-        #######################################
-        # Calculate Displacements and Find Points Fixed Root
-        TotDisp  = np.zeros((NP,3))
-        WallDisp = np.zeros((NP,3))
-        RootDisp = np.zeros((NP,3))
-        PointsFixed = np.zeros((NP,3))
 
-        for i in range(NP):
-            TotDisp[i,:] = polydata.GetPoint(i) - RefPointsFixed[i,:]
-
-        Ranges = np.array(polydata.GetPoints().GetBounds())
-        Mids = np.zeros((3))
-        Mids[0] = np.mean(Ranges[0:2])
-        Mids[1] = np.mean(Ranges[2:4])
-        Mids[2] = np.mean(Ranges[4:6])
-
+        #Calculate Displacements
+        TotDisp, WallDisp, RootDisp = calDisp(polydata,Pts[X,:,:],NP,RefPointsFixed)
         
-        for i in range(NP):
-            PointsFixed[i,:] = Pts[X,i,:] - Mids
-            WallDisp[i,:]   = PointsFixed[i,:] - RefPointsFixed[i,:]
-            RootDisp[i,:]   = TotDisp[i,:] - WallDisp[i,:]
+        TotalWallArea, TotalWallVolume, TotalLumenVolume, XArea = calAreaAndVol(polydata,Pts[X,:,:],ThickData,NC,NP)
 
-        ##############################
-        # Rotate Mesh
-        
-        Pointsb = PointsFixed.T
-        Points2 = np.zeros((3,25,36))
-        for i in range(3):
-         for j in range(25):
-          for k in range(36):
-           Points2[i,j,k] = Pointsb[i,((j)%25+k*25)%900]
-        
-        centre_line = np.zeros((3,25))
-        for i in range(3):
-            for j in range(25):
-                centre_line[i,j] = np.mean(Points2[i,j,:])
-
-        a   = centre_line[:,13]
-        mag = np.linalg.norm(a)
-        a   = a/mag 
-        b   = [0,0,1]
-        v   = np.cross(a,b)
-        c   = np.dot(a,b)
-
-        vx  = [[0,-v[2],v[1]],[v[2],0,-v[0]],[-v[1],v[0],0]]
-        vx2 = np.matmul(vx,vx)
-        
-        R   = np.identity(3)+vx+vx2*(1/(1+c))
-        RPoints = np.matmul(R,Pointsb)
-        PointsRotated = RPoints.T
-
-        PointsRotated2 = np.zeros((3,25,36))
-        for i in range(3):
-         for j in range(25):
-          for k in range(36):
-           PointsRotated2[i,j,k] = RPoints[i,((j)%25+k*25)%900]
-
-
-        #######################################
-        # Define Properties: Areas, Volumes, J
-
-        TotalWallArea    = 0
-        TotalWallVolume  = 0
-        TotalLumenVolume = 0
-        #Define Wall Area and Volume
-        for i in range(NC):
-            #Assign point id
-            t = np.array([polydata.GetCell(i).GetPointId(j) for j in range(3)])
-            #For each cell assign thickness for each point
-            Thicks = [ThickData[t[j]] for j in range(3)] 
-            #Sum Cell Areas and Volumes
-            CA = polydata.GetCell(i).ComputeArea()
-            CV = CA*(np.sum(Thicks))/3
-            TotalWallArea   += CA
-            TotalWallVolume += CV
-
-        xRing = np.zeros((25,37))
-        yRing = np.zeros((25,37))
-
-        for i in range(25):
-            xRing[i,0:36] = PointsRotated2[0,i,:]
-            yRing[i,0:36] = PointsRotated2[1,i,:]
-            xRing[i,36]   = xRing[i,0]
-            yRing[i,36]   = yRing[i,0]
-
-        for i in range(25):
-            for j in range(36):
-                CrossArea[X,i] +=(xRing[i,j]*yRing[i,j-1] - xRing[i,j-1]*yRing[i,j])/2
-
-        for i in range(24):
-            TotalLumenVolume += (np.mean(PointsRotated2[2,i,:])-np.mean(PointsRotated2[2,i+1,:]))*(CrossArea[X,i]+CrossArea[X,i+1])/2
-
+        # Save areas and volumes for each frame
         WallArea[X]       = TotalWallArea
         WallVol[X]        = TotalWallVolume
         LumenVol[X]       = TotalLumenVolume
+        CrossArea[X,:]    = XArea
 
-        #Calculate J and I1
-        for i in range(NC):
-            Cells = np.array(polydata.GetCell(i).GetPoints().GetData())
+        #########################################
+        #Define Properties: J and I1
+        J, I1 = calStrains(polydata,RA,NC)
 
-            # Define Reference Vectors
-            A1 = RA[i,0,:]
-            A2 = RA[i,1,:]
-            
-            #Define Deformed Vectors
-            a1 = Cells[2,:]-Cells[0,:]
-            a2 = Cells[2,:]-Cells[1,:]
-
-            G      = np.array([[np.dot(A1,A1),np.dot(A1,A2)],[np.dot(A2,A1),np.dot(A2,A2)]])
-            invG   = np.linalg.inv(G)
-            
-            A1dual = invG[0,0]*A1 + invG[0,1]*A2
-            A2dual = invG[1,0]*A1 + invG[1,1]*A2
-            F   = np.outer(a1,A1dual) + np.outer(a2,A2dual)
-            C   = np.dot(F.T,F)
-            C2  = np.dot(C,C)
-
-            trC         = C.trace()
-            trC2        = C2.trace()
-            I1[i]    = trC
-            J[i]     = np.sqrt((trC**2-trC2)/2)
 
         #############################
         # Define Curvature
@@ -297,7 +362,12 @@ def calStrains(flist,ref,refN,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
         curvgauss.Update()
         CurvG = curvgauss.GetOutput()
         CurvG.GetPointData().GetScalars()
-        CDG = np.asarray(CurvG.GetPointData().GetArray(5)) #What is the 5 for?  
+        NumOfArrs = CurvG.GetPointData().GetNumberOfArrays()
+        # Get curvature data that has been saved to new array
+        if not CurvG.GetPointData().GetArray(NumOfArrs-1):
+            CDG = np.zeros(900)
+        else:
+            CDG = np.asarray(CurvG.GetPointData().GetArray(NumOfArrs-1))  
 
         # Define Mean Curvature
         curvmean = vtk.vtkCurvatures()
@@ -306,8 +376,14 @@ def calStrains(flist,ref,refN,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
         curvmean.Update()
         CurvM = curvmean.GetOutput()
         CurvM.GetPointData().GetScalars()
-        CDM = np.asarray(CurvM.GetPointData().GetArray(5))
-            
+        NumOfArrs = CurvM.GetPointData().GetNumberOfArrays()
+        # Get curvature data that has been saved to new array
+        if not CurvM.GetPointData().GetArray(NumOfArrs-1):
+            CDM = np.zeros(900)
+        else:
+            CDM = np.asarray(CurvM.GetPointData().GetArray(NumOfArrs-1))
+
+
         #####################################
         # Add Data to Files and Write Files
 
@@ -332,7 +408,6 @@ def calStrains(flist,ref,refN,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
         I1pt = vtk_to_numpy(c2p.GetPolyDataOutput().GetPointData().GetArray(NumArr))
         Jpt  = vtk_to_numpy(c2p.GetPolyDataOutput().GetPointData().GetArray(NumArr+1))
 
-        #Can we also transfer the I1 and J to points and add that data?
         # Add Point Data
         PointData = [CDG,CDM,I1pt,Jpt]
         PointNames = ['CurvGaussian','CurvMean','I1_Pt','J_Pt'] 
@@ -363,6 +438,7 @@ def calStrains(flist,ref,refN,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
             dataFields.AddArray(arrayField)
             dataFields.Modified() 
 
+        # Save points to be the reference frame with centre fixed at (0,0,0)
         if FixAndRotate ==True:
             for i in range(NP):
                 ptNew = RefPointsFixed[i,:]
@@ -381,7 +457,7 @@ def calStrains(flist,ref,refN,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
         print('Writing',fname)
         writer.Write()
 
-    print(Time)
+
     WallAreaRatio[:]  = WallArea[:]/WallArea[0]
     WallVolRatio[:]   = WallVol[:]/WallVol[0]
     LumenVolRatio[:]  = LumenVol[:]/LumenVol[0]
@@ -391,7 +467,6 @@ def calStrains(flist,ref,refN,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
 if __name__=='__main__':
     import csv
     import glob
-    import pandas as pd
     import numpy as np
     from natsort import natsorted # pip install natsort
      
@@ -399,9 +474,7 @@ if __name__=='__main__':
         XLData = csv.reader(csv_file, delimiter=',')
 
     FixAndRotate=False
-    List_of_Subdirectories = sorted(glob.glob('./medial_meshes/*'))
-    #List_of_Subdirectories = sorted(glob.glob('~/Box/Aortic Valve Atlases - Final QC/semi-automated segmentations - root/*'))
-
+    List_of_Subdirectories = sorted(glob.glob('./medial_meshesNew/*'))
    
     CommonOfDir = os.path.commonprefix(List_of_Subdirectories)
     for d in List_of_Subdirectories:
@@ -421,7 +494,7 @@ if __name__=='__main__':
         CF = DataInfo[5]
 
         #for 'medial_meshes' in List_of_subdirectories:    
-        fnames = sorted(glob.glob(d + '/medial meshes/*.vtk'))       
+        fnames = sorted(glob.glob(d + '/medial meshes - propagated from reference/*.vtk')) 
 
 
         #Choose reference frame
@@ -437,17 +510,26 @@ if __name__=='__main__':
             if X==refN:
                 ref=Fname
 
-        fdir = os.path.dirname(fnames[0])
-        # Check Directory
-        if not os.path.exists(fdir):
-            print('Error: Path does not exist:', fdir)
-            sys.exit()
-        WallArea, WallVol, LumenVol, Time, Pts, WallAreaRatio, WallVolRatio, LumenVolRatio, N = calStrains(flist=fnames,ref=ref,refN=refN,FT=FT,OF=OF,CF=CF)
-        print('Total Wall Area =',WallArea)
-        print('Total Wall Volume =',WallVol)
-        print('Total Lumen Volume =',LumenVol)
-        ###################################
-        # Save data
-        DataLocation = 'Strains/' + d + '/medial meshes/Data.npz'
-        np.savez(DataLocation,Time=Time,Pts=Pts,WallArea=WallArea,WallVol=WallVol, LumenVol=LumenVol, WallAreaRatio=WallAreaRatio, WallVolRatio=WallVolRatio, LumenVolRatio=LumenVolRatio, N=N, OF=OF, CF=CF,refN = refN)
+        if not fnames:
+            print(DataDir," is empty")
+        else:
+            fdir = os.path.dirname(fnames[0])
+            # Check Directory
+            if not os.path.exists(fdir):
+                print('Error: Path does not exist:', fdir)
+                sys.exit()
+            WallArea, WallVol, LumenVol, Time, Pts, WallAreaRatio, WallVolRatio, LumenVolRatio, N = ProcessData(flist=fnames,ref=ref,FT=FT,OF=OF,CF=CF)
+            print('Total Wall Area =',WallArea)
+            print('Total Wall Volume =',WallVol)
+            print('Total Lumen Volume =',LumenVol)
+            
+            ###################################
+            # Save data
+            DataLocation = 'Strains/' + d + '/medial meshes - propagated from reference/Data.npz'
+            np.savez(DataLocation,Time=Time,Pts=Pts,WallArea=WallArea,WallVol=WallVol, LumenVol=LumenVol, WallAreaRatio=WallAreaRatio, WallVolRatio=WallVolRatio, LumenVolRatio=LumenVolRatio, N=N, OF=OF, CF=CF,refN = refN)
+
+
+
+
+
 
