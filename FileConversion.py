@@ -5,11 +5,18 @@ import vtk
 from vtk.util.numpy_support import vtk_to_numpy
 from vtk.numpy_interface import dataset_adapter as dsa
 
+def OrderList(flist,N,ref):
+    '''
+    Reorders the list so that the first file is the reference file, and returns new list of filenames and their IDs 
 
+    Keyword arguments:
+    flist -- list of filenames
+    N -- number of files
+    ref -- reference file name
 
-
-
-def OrderList(flist,N,ref,refN):
+    For example: for a list [file1.vtk, file2.vtk, file3.vtk, file4.vtk, file7.vtk, file8.vtk] and ref = file3.vtk
+    it will return [file3.vtk file4.vtk file7.vtk file8.vtk file1.vtk file2.vtk], [3 4 7 8 1 2], and 3
+    '''
     # Order filenames so that reference frame goes first
     Fno = np.zeros(N)
     FId = np.zeros(N)
@@ -33,7 +40,6 @@ def OrderList(flist,N,ref,refN):
         if X==refN:
             RefId = i
 
-
     # Sort reference area to be first in list
     FId[0:N-RefId] = Fno[RefId:N]
     FId[N-RefId:N]   = Fno[0:RefId]
@@ -47,10 +53,20 @@ def OrderList(flist,N,ref,refN):
             if X[0] ==F:
                 FListOrdered[i] = Fname
 
-    return FListOrdered, FId
+    return FListOrdered, FId, refN
 
 
 def FixAndRotateMesh(polydata,Points,NP):
+    '''
+    Given vtk data for a single frame, coordinates of points in that frame, and the number of points, it returns the translated and rotated points
+
+    Keyword arguments:
+    polydata -- vtk object 
+    Points -- numpy array of the coordinates
+    NP -- number of points
+
+    WARNING: This function assumes the mesh has 25 rings with 36 points each and their order specific to the root case
+    '''
     PointsFixed = np.zeros((NP,3))
 
     # Find mid points of current frameframe
@@ -103,6 +119,21 @@ def FixAndRotateMesh(polydata,Points,NP):
     return PointsRotated2
 
 def calDisp(polydata,Points,NP,RefPointsFixed):
+    '''
+    Calculate displacement with respect to the reference points split into total, wall and root displacements
+
+    Keyword arguments:
+    polydata -- vtk object of the current timeframe
+    Points -- numpy array of the current coordinates
+    NP -- number of points
+    RefPointsFixed -- numpy array of the reference coordinates, assumed to be fixed with geometric center at (0,0,0)
+
+    Returns three numpy arrays:
+    first -- total displacement
+    second -- displacement of the wall relative to the fixed root
+    third -- displacement of the whole root without the movement of the wall
+    first == second + third
+    '''
     #######################################
     # Calculate Displacements and Find Points Fixed Root
     TotDisp  = np.zeros((NP,3))
@@ -132,6 +163,21 @@ def calDisp(polydata,Points,NP,RefPointsFixed):
     return TotDisp, WallDisp, RootDisp
 
 def calAreaAndVol(polydata,Points,ThickData,NC,NP):
+    '''
+    Calculate the wall area, wall volume, and the lumen volume
+
+    Keyword arguments:
+    polydata -- vtk object of the mesh
+    Points -- numpy array of the point coordinates
+    ThickData -- numpy array of the thickness at the points
+    NC -- number of cells
+    NP -- number of points
+
+    Uses the FixAndRotateMesh function (which in turn assumes the mesh structure)
+    TODO: make the lumen volume calculation more generic
+    Returns three scalars: TotalWallArea, TotalWallVolume, TotalLumenVolume
+    '''
+
     #######################################
     # Define Properties: Areas and Volumes
 
@@ -171,9 +217,19 @@ def calAreaAndVol(polydata,Points,ThickData,NC,NP):
     for i in range(24):
         TotalLumenVolume += (np.mean(PointsRotated[2,(i+13)%25,:])-np.mean(PointsRotated[2,(i+13+1)%25,:]))*(XArea[i]+XArea[i+1])/2
 
-    return TotalWallArea, TotalWallVolume, TotalLumenVolume, XArea
+    return TotalWallArea, TotalWallVolume, TotalLumenVolume
 
 def calStrains(polydata, RA, NC):
+    '''
+    Calculate strain invariants with respect to the reference basis
+
+    Keyword arguments:
+    polydata -- vtk object for the current time point
+    RA -- numpy array of the reference basis vectors of size NC X 2 X 3
+    NC -- number of cells
+
+    Returns two numpy arrays of invariant J and I1 at the cells
+    '''
     I1 = np.zeros(NC)
     J  = np.zeros(NC)
 
@@ -207,7 +263,27 @@ def calStrains(polydata, RA, NC):
 
 
 
-def ProcessData(flist,ref,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
+def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True,opformat='vtp'):
+    '''
+    Process all the files in a given list, including calculation of strains with respect to a reference
+
+    Keyword arguments:
+    flist -- list of filenames
+    ref -- name of the reference file
+    FT -- time between frames (or framerate)
+    OF -- file number of the frame when AV opens
+    CF -- file number of the frame when AV closes
+    prefix -- prefix to the directory where the resulting files are stored (default 'Strains/')
+    FixAndRotate -- whether the points should be fixed and rotated or not (default True)
+    opformat -- format of the output files, either vtp (default) or vtk
+
+    The function creates new .vtp files with the following data added:
+    calculated strains, curvatures, cell areas and volumes, and field data of total wall area, total wall volume, total lumen volume, AV open/closed status
+    
+    Then the function returns the following numpy arrays (which have been reordered using OrderList):
+    WallArea, WallVol, LumenVol, Time, Pts, WallAreaRatio, WallVolRatio, LumenVolRatio
+    and N (the number of frames)
+    '''
     print('##############################')
     print('Starting ProcessData Function')
     print('##############################')
@@ -237,7 +313,7 @@ def ProcessData(flist,ref,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
     else:
         ThickData = vtk_to_numpy(polydata.GetPointData().GetArray(1))
         
-    RefWallArea, RefWallVoliume, RefLumenVolume, RefXArea = calAreaAndVol(polydata,RefPoints,ThickData,NC,NP)
+    RefWallArea, RefWallVoliume, RefLumenVolume = calAreaAndVol(polydata,RefPoints,ThickData,NC,NP)
     
     # Define Empty Arrays for Reference Data
     RA = np.zeros((NC,2,3))
@@ -277,21 +353,21 @@ def ProcessData(flist,ref,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
     WallAreaRatio = np.zeros(N)
     WallVolRatio  = np.zeros(N)
     LumenVolRatio = np.zeros(N)
-    CrossArea     = np.zeros((N,25))
     Pts           = np.zeros((N,NP,3))
     
 
     # Re-order filename list to start with reference frame
-    FListOrdered, FId = OrderList(flist,N,ref,refN)
+    FListOrdered, FId, refN = OrderList(flist,N,ref)
 
 
     # Analyse each frame
     common = os.path.commonprefix(flist)
     for X,Fname in enumerate(FListOrdered):
-        OpenX  = float(OF)-float(refN)
-        CloseX = float(CF)-float(refN)
-        if float(X)>=OpenX and float(X)<CloseX:
-            ValvePosition[X] = 1
+        if OF is not None and CF is not None:
+            OpenX  = float(OF)-float(refN)
+            CloseX = float(CF)-float(refN)
+            if float(X)>=OpenX and float(X)<CloseX:
+                ValvePosition[X] = 1
 
         print('Reading Current Frame:', Fname)
 
@@ -314,7 +390,7 @@ def ProcessData(flist,ref,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
             elif FId[X]-FId[X-1]>0:
                 Time[X] = Time[X-1]+(FId[X]-FId[X-1])*float(FT)
 
-        if not polydata.GetPointData().GetArray(1):
+        if not polydata.GetPointData().GetArray(1): #TODO check the array name to make sure it is thickness
             print('Warning Wall Thickness data is missing')
             ThickData = np.zeros((NC,3))
         else:
@@ -322,16 +398,9 @@ def ProcessData(flist,ref,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
 
         #Check that the number of points and cells are consistent
         if NP != polydata.GetNumberOfPoints():
-            print('Warning: the number of points between the reference and deformed frames differ')
+            raise ValueError('Error: the number of points between the reference and deformed frames differ')
         if NC != polydata.GetNumberOfCells():
-            print('Warning: the number of cells between the reference and deformed frames differ')
-
-        # Save frames with open valve (defined to be 1, and 0 otherwise)
-        OpenX  = float(OF)-float(refN)
-        CloseX = float(CF)-float(refN)
-        if float(X)>=OpenX and float(X)<CloseX:
-            ValvePosition[X] = 1
-
+            raise ValueError('Error: the number of cells between the reference and deformed frames differ')
 
         #Save Point coordinates to array to be saved
         Pts[X,:,:] = vtk_to_numpy(polydata.GetPoints().GetData())
@@ -339,13 +408,12 @@ def ProcessData(flist,ref,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
         #Calculate Displacements
         TotDisp, WallDisp, RootDisp = calDisp(polydata,Pts[X,:,:],NP,RefPointsFixed)
         
-        TotalWallArea, TotalWallVolume, TotalLumenVolume, XArea = calAreaAndVol(polydata,Pts[X,:,:],ThickData,NC,NP)
+        TotalWallArea, TotalWallVolume, TotalLumenVolume = calAreaAndVol(polydata,Pts[X,:,:],ThickData,NC,NP)
 
         # Save areas and volumes for each frame
         WallArea[X]       = TotalWallArea
         WallVol[X]        = TotalWallVolume
         LumenVol[X]       = TotalLumenVolume
-        CrossArea[X,:]    = XArea
 
         #########################################
         #Define Properties: J and I1
@@ -364,10 +432,7 @@ def ProcessData(flist,ref,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
         CurvG.GetPointData().GetScalars()
         NumOfArrs = CurvG.GetPointData().GetNumberOfArrays()
         # Get curvature data that has been saved to new array
-        if not CurvG.GetPointData().GetArray(NumOfArrs-1):
-            CDG = np.zeros(900)
-        else:
-            CDG = np.asarray(CurvG.GetPointData().GetArray(NumOfArrs-1))  
+        CDG = np.asarray(CurvG.GetPointData().GetArray(NumOfArrs-1))  
 
         # Define Mean Curvature
         curvmean = vtk.vtkCurvatures()
@@ -378,11 +443,7 @@ def ProcessData(flist,ref,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
         CurvM.GetPointData().GetScalars()
         NumOfArrs = CurvM.GetPointData().GetNumberOfArrays()
         # Get curvature data that has been saved to new array
-        if not CurvM.GetPointData().GetArray(NumOfArrs-1):
-            CDM = np.zeros(900)
-        else:
-            CDM = np.asarray(CurvM.GetPointData().GetArray(NumOfArrs-1))
-
+        CDM = np.asarray(CurvM.GetPointData().GetArray(NumOfArrs-1))
 
         #####################################
         # Add Data to Files and Write Files
@@ -395,7 +456,6 @@ def ProcessData(flist,ref,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
             arrayCell.SetName(CellNames[i])
             dataCells = polydata.GetCellData()
             dataCells.AddArray(arrayCell)
-        
 
         NumArr = polydata.GetPointData().GetNumberOfArrays()
 
@@ -429,8 +489,13 @@ def ProcessData(flist,ref,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
             dataVectors.Modified()
 
         # Add Field Data
-        FieldData = [WallArea[X], WallVol[X],LumenVol[X],ValvePosition[X]]
-        FieldNames = ['WallArea','WallVolume','LumenVolume','ValvePosition'] 
+        if OF is not None and CF is not None:
+            FieldData = [WallArea[X], WallVol[X],LumenVol[X],ValvePosition[X]]
+            FieldNames = ['WallArea','WallVolume','LumenVolume','ValvePosition'] 
+        else:
+            FieldData = [WallArea[X], WallVol[X],LumenVol[X]]
+            FieldNames = ['WallArea','WallVolume','LumenVolume'] 
+
         for i in range(len(FieldNames)) :
             arrayField = vtk.util.numpy_support.numpy_to_vtk(FieldData[i], deep=True)
             arrayField.SetName(FieldNames[i])
@@ -439,24 +504,33 @@ def ProcessData(flist,ref,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
             dataFields.Modified() 
 
         # Save points to be the reference frame with centre fixed at (0,0,0)
-        if FixAndRotate ==True:
+        if FixAndRotate == True:
             for i in range(NP):
                 ptNew = RefPointsFixed[i,:]
                 polydata.GetPoints().SetPoint(i, ptNew)
 
         #################################
         # Write data to vtp files
-        fname = prefix + os.path.splitext(Fname)[0] + '.vtp'
+        if opformat == 'vtp':
+            fname = prefix + os.path.splitext(Fname)[0] + '.vtp'
+        elif opformat == 'vtk':
+            fname = prefix + os.path.splitext(Fname)[0] + '.vtk'
+        else:
+            raise ValueError("Only vtp and vtk output formats are allowed")
         directory = os.path.dirname(fname)
         if not os.path.exists(directory):
             os.makedirs(directory)
 
-        writer = vtk.vtkXMLDataSetWriter()
+        if opformat == 'vtp':
+            writer = vtk.vtkXMLDataSetWriter()
+        elif opformat == 'vtk':
+            writer = vtk.vtkDataSetWriter()
+        else:
+            raise ValueError("Only vtp and vtk output formats are allowed")
         writer.SetFileName(fname)
         writer.SetInputData(polydata)
         print('Writing',fname)
         writer.Write()
-
 
     WallAreaRatio[:]  = WallArea[:]/WallArea[0]
     WallVolRatio[:]   = WallVol[:]/WallVol[0]
@@ -465,71 +539,27 @@ def ProcessData(flist,ref,FT,OF,CF,prefix='Strains/',FixAndRotate=True):
     return WallArea, WallVol, LumenVol, Time, Pts, WallAreaRatio, WallVolRatio, LumenVolRatio, N
 
 if __name__=='__main__':
-    import csv
     import glob
-    import numpy as np
-    from natsort import natsorted # pip install natsort
-     
-    with open('echoframetime.csv') as csv_file:
-        XLData = csv.reader(csv_file, delimiter=',')
+    FixAndRotate = True
+    fnames = sorted(glob.glob('bav02/medial meshes/*.vtk'))
+    print(fnames,len(fnames))
+    fdir = os.path.dirname(fnames[0])
+    # Check Directory
+    if not os.path.exists(fdir):
+        print('Error: Path does not exist:', fdir)
+        sys.exit()
 
-    FixAndRotate=False
-    List_of_Subdirectories = sorted(glob.glob('./medial_meshesNew/*'))
-   
-    CommonOfDir = os.path.commonprefix(List_of_Subdirectories)
-    for d in List_of_Subdirectories:
-
-        DataDir = d.replace(CommonOfDir,'')
-
-        with open('echoframetime.csv') as csv_file:
-            XLData = csv.reader(csv_file, delimiter=',')
-            for row in XLData:
-                if DataDir == row[0]:
-                    DataInfo = row
-        
-        #Define Frame Time Length
-        FT = DataInfo[1]
-        #Define Open Frame and Close Frame
-        OF = DataInfo[4]
-        CF = DataInfo[5]
-
-        #for 'medial_meshes' in List_of_subdirectories:    
-        fnames = sorted(glob.glob(d + '/medial meshes - propagated from reference/*.vtk')) 
-
-
-        #Choose reference frame
-        refN = int(DataInfo[4])-1 #Choose frame before valve opens
-        #refN = 0 #Choose first saved frame
-
-        common = os.path.commonprefix(fnames)
-        for Fname in list(fnames):
-            X = Fname.replace(common,'')
-            X = X.replace('.vtk','')
-            X = np.fromstring(X, dtype=int, sep=' ')
-            X=X[0]
-            if X==refN:
-                ref=Fname
-
-        if not fnames:
-            print(DataDir," is empty")
-        else:
-            fdir = os.path.dirname(fnames[0])
-            # Check Directory
-            if not os.path.exists(fdir):
-                print('Error: Path does not exist:', fdir)
-                sys.exit()
-            WallArea, WallVol, LumenVol, Time, Pts, WallAreaRatio, WallVolRatio, LumenVolRatio, N = ProcessData(flist=fnames,ref=ref,FT=FT,OF=OF,CF=CF)
-            print('Total Wall Area =',WallArea)
-            print('Total Wall Volume =',WallVol)
-            print('Total Lumen Volume =',LumenVol)
-            
-            ###################################
-            # Save data
-            DataLocation = 'Strains/' + d + '/medial meshes - propagated from reference/Data.npz'
-            np.savez(DataLocation,Time=Time,Pts=Pts,WallArea=WallArea,WallVol=WallVol, LumenVol=LumenVol, WallAreaRatio=WallAreaRatio, WallVolRatio=WallVolRatio, LumenVolRatio=LumenVolRatio, N=N, OF=OF, CF=CF,refN = refN)
-
-
-
-
-
+    OF,CF=3,10
+    WallArea, WallVol, LumenVol, Time, Pts, WallAreaRatio, WallVolRatio, LumenVolRatio, N = ProcessData(flist=fnames,ref=fnames[0],FT=100.,OF=OF,CF=CF,opformat='vtk')
+    print('Total Wall Area =',WallArea)
+    print('Total Wall Volume =',WallVol)
+    print('Total Lumen Volume =',LumenVol)
+    ###################################
+    # Save data
+    print(fdir)
+    DataLocation = 'Strains/'+fdir+'/Data.npz'
+    if OF is not None and CF is not None:
+        np.savez(DataLocation,Time=Time,Pts=Pts,WallArea=WallArea,WallVol=WallVol, LumenVol=LumenVol, WallAreaRatio=WallAreaRatio, WallVolRatio=WallVolRatio, LumenVolRatio=LumenVolRatio, N=N, OF=OF, CF=CF)
+    else:
+        np.savez(DataLocation,Time=Time,Pts=Pts,WallArea=WallArea,WallVol=WallVol, LumenVol=LumenVol, WallAreaRatio=WallAreaRatio, WallVolRatio=WallVolRatio, LumenVolRatio=LumenVolRatio, N=N)
 
