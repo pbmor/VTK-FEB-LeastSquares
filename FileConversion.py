@@ -4,7 +4,6 @@ import sys
 import vtk
 from vtk.util.numpy_support import vtk_to_numpy
 from vtk.numpy_interface import dataset_adapter as dsa
-import tetgen
 
 def OrderList(flist,N,ref):
     '''
@@ -21,6 +20,8 @@ def OrderList(flist,N,ref):
     # Order filenames so that reference frame goes first
     Fno = np.zeros(N)
     FId = np.zeros(N)
+
+    print(flist)
 
     FListOrdered = [None]*N
     common = os.path.commonprefix(flist)
@@ -56,7 +57,7 @@ def OrderList(flist,N,ref):
 
     return FListOrdered, FId, refN
 
-def calDisp(polydata,Points,NP,RefPointsFixed):
+def calDisp(polydata,Points,NP,RefPointsFixed,RefMids):
     '''
     Calculate displacement with respect to the reference points split into total, wall and root displacements
 
@@ -83,7 +84,7 @@ def calDisp(polydata,Points,NP,RefPointsFixed):
     for i in range(NP):
         TotDisp[i,:] = polydata.GetPoint(i) - RefPointsFixed[i,:]
 
-    # Find mid points of current frameframe
+    # Find mid point of current frame
     Ranges = np.array(polydata.GetPoints().GetBounds())
     Mids = np.zeros((3))
     Mids[0] = np.mean(Ranges[0:2])
@@ -92,8 +93,8 @@ def calDisp(polydata,Points,NP,RefPointsFixed):
 
 
     for i in range(NP):
-        # Define points with the centre fixed at (0,0,0)
-        PointsFixed[i,:] = Points[i,:] - Mids
+        # Define points with the centre fixed at the centre of the reference frame (RefMids)
+        PointsFixed[i,:] = Points[i,:] - Mids + RefMids
         # Define wall displacement with a fixed root
         WallDisp[i,:]   = PointsFixed[i,:] - RefPointsFixed[i,:]
         # Define displacement of root, without wall movement
@@ -367,24 +368,19 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
            if polydata.GetPointData().GetArrayName(i) == 'Thickness':
                ThickData = vtk_to_numpy(polydata.GetPointData().GetArray(i))
     
-    RefPointsFixed = np.zeros(RefPoints.shape)
+    RefPointsFixed = RefPoints
 
-    #Find Centre Points
+    # Find mid point of current frame
     Ranges = np.array(polydata.GetPoints().GetBounds())
-    Mids = np.zeros((3))
-    Mids[0] = np.mean(Ranges[0:2])
-    Mids[1] = np.mean(Ranges[2:4])
-    Mids[2] = np.mean(Ranges[4:6])
-
-    # Define points with mid point fixed at (0,0,0)
-    for i in range(NP):
-        RefPointsFixed[i,:] = RefPoints[i,:] - Mids
-
+    RefMids = np.zeros((3))
+    RefMids[0] = np.mean(Ranges[0:2])
+    RefMids[1] = np.mean(Ranges[2:4])
+    RefMids[2] = np.mean(Ranges[4:6])
 
     RefWallArea, RefWallVoliume, RefLumenVolume = calAreaAndVol(polydata,ThickData,NC,NP)
     
     #Define initial frame of wall displacement for later use in motion calculation
-    _, WallDispPF, _ = calDisp(polydata,RefPoints,NP,RefPointsFixed)
+    _, WallDispPF, _ = calDisp(polydata,RefPoints,NP,RefPointsFixed,RefMids)
 
     # Define Empty Arrays for Reference Data
     RA = np.zeros((NC,2,3))
@@ -474,7 +470,7 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
 
         #########################################
         # Calculate Displacements
-        TotDisp, WallDisp, RootDisp = calDisp(polydata,Pts[X,:,:],NP,RefPointsFixed)
+        TotDisp, WallDisp, RootDisp = calDisp(polydata,Pts[X,:,:],NP,RefPointsFixed,RefMids)
         
         #########################################
         # Calculate Total Wall Area and Volume, and Lumen Volume
@@ -615,6 +611,7 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
             writer = vtk.vtkDataSetWriter()
         else:
             raise ValueError("Only vtp and vtk output formats are allowed")
+        print(fname)
         writer.SetFileName(fname)
         writer.SetInputData(polydata)
         print('Writing',fname)
