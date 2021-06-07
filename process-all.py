@@ -4,6 +4,7 @@ import numpy as np
 from natsort import natsorted # pip install natsort
 from FileConversion import *
 
+
 with open('echoframetime.csv') as csv_file:
     XLData = csv.reader(csv_file, delimiter=',')
 
@@ -15,7 +16,6 @@ TotalMotionAvgTAV = np.zeros(900)
 bavN = 0
 tavN = 0
 CommonOfDir = os.path.commonprefix(List_of_Subdirectories)
-#print(List_of_Subdirectories)
 for d in List_of_Subdirectories:
         
     DataDir = d.replace(CommonOfDir,'')
@@ -35,8 +35,6 @@ for d in List_of_Subdirectories:
 
     #for 'medial_meshes' in List_of_subdirectories:    
     fnames = sorted(glob.glob(d + '/medial meshes - propagated from reference/with point data - recon from propagated boundary meshes/*.vtk')) 
-#    fnames = sorted(glob.glob(d + '/medial meshes - propagated from reference/*.vtk'))
-#    fnames = sorted(glob.glob(d + '/medial meshes/*.vtk'))
 
     
     #Choose reference frame
@@ -51,6 +49,7 @@ for d in List_of_Subdirectories:
         X=X[0]
         if X==refN:
             ref=Fname
+    NX = len(fnames)
 
     if not fnames:
         print(DataDir," is empty")
@@ -65,14 +64,15 @@ for d in List_of_Subdirectories:
         else:
             print(DataDir,' is included')
             WallArea, WallVol, LumenVol, Time, Pts, WallAreaRatio, WallVolRatio, LumenVolRatio, AvgJ, AvgI1, AvgJRatio, AvgI1Ratio, TotalMotion, N = ProcessData(flist=fnames,ref=fnames[0],FT=100.,OF=OF,CF=CF,opformat='vtp')
+
     
             
             if DataDir[0] == 'b':
                 bavN += 1
-                TotalMotionAvgBAV += TotalMotion
+                TotalMotionAvgBAV += TotalMotion[NX-1,:]
             elif DataDir[0] == 't':
                 tavN += 1
-                TotalMotionAvgTAV += TotalMotion
+                TotalMotionAvgTAV += TotalMotion[NX-1,:]
 
             print('Total Wall Area =',WallArea)
             print('Total Wall Volume =',WallVol)
@@ -80,13 +80,13 @@ for d in List_of_Subdirectories:
         
             ###################################
             # Save data
-            DataLocation = 'Strains/' + d + '/medial meshes - propagated from reference/Data.npz'
+            DataLocation = 'Strains/' + d + '/medial meshes - propagated from reference/with point data - recon from propagated boundary meshes/Data.npz'
             np.savez(DataLocation,Time=Time,Pts=Pts,WallArea=WallArea,WallVol=WallVol, LumenVol=LumenVol, WallAreaRatio=WallAreaRatio, WallVolRatio=WallVolRatio, LumenVolRatio=LumenVolRatio, AvgJ=AvgJ,AvgI1=AvgI1, AvgJRatio=AvgJRatio, AvgI1Ratio=AvgI1Ratio, N=N, OF=OF, CF=CF,refN = refN)
-
 
 TotalMotionAvgBAV = TotalMotionAvgBAV/bavN
 TotalMotionAvgTAV = TotalMotionAvgTAV/tavN
 
 np.save('./TotalMotionAvgBAV',TotalMotionAvgBAV)
 np.save('./TotalMotionAvgTAV',TotalMotionAvgTAV)
+
 

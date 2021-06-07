@@ -3,7 +3,6 @@ import os
 import sys
 import vtk
 from vtk.util.numpy_support import vtk_to_numpy
-from vtk.numpy_interface import dataset_adapter as dsa
 
 def OrderList(flist,N,ref):
     '''
@@ -139,7 +138,8 @@ def calAreaAndVol(polydata,ThickData,NC,NP):
     Mids[0] = np.mean(Ranges[0:2])
     Mids[1] = np.mean(Ranges[2:4])
     Mids[2] = np.mean(Ranges[4:6])
-
+    
+    #Find edges of root mesh
     fedges = vtk.vtkFeatureEdges()
     fedges.BoundaryEdgesOn()
     fedges.FeatureEdgesOff()
@@ -147,7 +147,8 @@ def calAreaAndVol(polydata,ThickData,NC,NP):
     fedges.SetInputData(polydata)
     fedges.Update()
     ofedges = fedges.GetOutput()
-
+    
+    #Mark two edges separately
     Connect = vtk.vtkPolyDataConnectivityFilter()
     Connect.SetInputData(ofedges)
     Connect.SetExtractionModeToAllRegions()
@@ -155,30 +156,35 @@ def calAreaAndVol(polydata,ThickData,NC,NP):
     Connect.Update()
     Connect = Connect.GetOutput()
 
+    #Choose specific edges
     Ring1 = vtk.vtkThreshold()
     Ring1.ThresholdByUpper(0.5)
     Ring1.SetInputData(Connect)
     Ring1.Update()
     Ring1 = Ring1.GetOutput()
 
+    #Create cap
     Cap1 = vtk.vtkDelaunay2D()
     Cap1.SetProjectionPlaneMode(vtk.VTK_BEST_FITTING_PLANE)
     Cap1.SetInputData(Ring1)
     Cap1.Update()
     C1Ps = vtk_to_numpy(Cap1.GetOutput().GetPoints().GetData())
 
+    #Chose second ring
     Ring2 = vtk.vtkThreshold()
     Ring2.ThresholdByLower(0.5)
     Ring2.SetInputData(Connect)
     Ring2.Update()
     Ring2 = Ring2.GetOutput()
 
+    #Chose second cap
     Cap2 = vtk.vtkDelaunay2D()
     Cap2.SetProjectionPlaneMode(vtk.VTK_BEST_FITTING_PLANE)
     Cap2.SetInputData(Ring2)
     Cap2.Update()
     C2Ps = vtk_to_numpy(Cap2.GetOutput().GetPoints().GetData())
 
+    #Find normals of cap 1 cells
     normals = vtk.vtkPolyDataNormals()
     normals.SetInputConnection(Cap1.GetOutputPort())
     normals.ComputePointNormalsOff()
@@ -186,24 +192,27 @@ def calAreaAndVol(polydata,ThickData,NC,NP):
     normals.Update()
     Norm1 = normals.GetOutput()
 
+    #Find centres of cap 1 cells
     vtkCenters=vtk.vtkCellCenters()
     vtkCenters.SetInputConnection(Cap1.GetOutputPort())
     vtkCenters.Update()
     centersOutput=vtkCenters.GetOutput()
     centers1=np.array([centersOutput.GetPoint(i) for i in range(Norm1.GetNumberOfCells())])
 
+    #Get normals and points and their averages
     Norms = vtk_to_numpy(Norm1.GetCellData().GetNormals())
     Ps    = vtk_to_numpy(Norm1.GetPoints().GetData())
-
     NAvg1 = np.array([np.mean(Norms[:,i]) for i in range(3)])
     PAvg1 = np.array([np.mean(Ps[:,i]) for i in range(3)])
 
+    #find direction of the root centre to the cap centre
     Cline1 = PAvg1-Mids
     u1 = NAvg1/np.linalg.norm(NAvg1)
     u2 = Cline1/np.linalg.norm(Cline1)
     dot_product = np.dot(u1, u2)
     angle = np.arccos(np.dot(u1,u2))
 
+    #Check normals point inwards
     if angle<= (np.pi/2):
         normals = vtk.vtkPolyDataNormals()
         normals.SetInputConnection(Cap1.GetOutputPort())
@@ -215,6 +224,7 @@ def calAreaAndVol(polydata,ThickData,NC,NP):
     else:
         Cap1 = Cap1.GetOutput()
 
+    #Repeat check for second cap
     normals = vtk.vtkPolyDataNormals()
     normals.SetInputConnection(Cap2.GetOutputPort())
     normals.ComputePointNormalsOff()
@@ -255,6 +265,7 @@ def calAreaAndVol(polydata,ThickData,NC,NP):
     Cap1.ShallowCopy(Cap1)
     Cap2.ShallowCopy(Cap2)
 
+    #Attach Caps to root mesh
     appendFilter = vtk.vtkAppendPolyData()
     appendFilter.AddInputData(Cap1)
     appendFilter.AddInputData(polydata)
@@ -264,7 +275,8 @@ def calAreaAndVol(polydata,ThickData,NC,NP):
     cleanFilter = vtk.vtkCleanPolyData()
     cleanFilter.SetInputConnection(appendFilter.GetOutputPort())
     cleanFilter.Update()
-
+    
+    #Get Lumen volume
     massUnion = vtk.vtkMassProperties()
     massUnion.SetInputConnection(cleanFilter.GetOutputPort())
     TotalLumenVolume = massUnion.GetVolume()
@@ -306,10 +318,10 @@ def calStrains(polydata, RA, NC):
         C2  = np.dot(C,C)
 
         # Define principle strains and J
-        trC         = C.trace()
-        trC2        = C2.trace()
-        I1[i]    = trC
-        J[i]     = np.sqrt((trC**2-trC2)/2)
+        trC   = C.trace()
+        trC2  = C2.trace()
+        I1[i] = trC
+        J[i]  = np.sqrt((trC**2-trC2)/2)
     
     return J, I1
 
@@ -367,7 +379,8 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
         for i in range(NumOfArr):
            if polydata.GetPointData().GetArrayName(i) == 'Thickness':
                ThickData = vtk_to_numpy(polydata.GetPointData().GetArray(i))
-    
+
+    #Default is set to fix the mesh to the reference position
     RefPointsFixed = RefPoints
 
     # Find mid point of current frame
@@ -377,12 +390,10 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
     RefMids[1] = np.mean(Ranges[2:4])
     RefMids[2] = np.mean(Ranges[4:6])
 
-    RefWallArea, RefWallVoliume, RefLumenVolume = calAreaAndVol(polydata,ThickData,NC,NP)
-    
     #Define initial frame of wall displacement for later use in motion calculation
     _, WallDispPF, _ = calDisp(polydata,RefPoints,NP,RefPointsFixed,RefMids)
 
-    # Define Empty Arrays for Reference Data
+    # Define empty array for reference basis
     RA = np.zeros((NC,2,3))
 
     for i in range(NC):
@@ -414,7 +425,7 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
     AvgJRatio     = np.zeros(N)
     AvgI1Ratio    = np.zeros(N)
     Pts           = np.zeros((N,NP,3))
-    TotalMotion   = np.zeros(NP)
+    TotalMotion   = np.zeros((N,NP))
     
     # Re-order filename list to start with reference frame
     FListOrdered, FId, refN = OrderList(flist,N,ref)
@@ -484,21 +495,25 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
         #########################################
         # Calculate Motion Vector (difference between current and previous frame of wall displacement)
         MotionVector = WallDisp - WallDispPF
-        Motion = np.zeros(900)
+        Motion = np.zeros(NP)
 
         #Define Motion magnitude
         for i in range(NP):
             Motion[i] = np.sqrt(sum(MotionVector[i,j]**2 for j in range (3)))
+        
+        #Define cumulative motion
+        if X==0:
+            TotalMotion[X,:] += Motion
+        else :
+            TotalMotion[X,:] = TotalMotion[X-1,:] + Motion
 
         #Update previous frame of wall disp for use in next frame
         WallDispPF = WallDisp
         
         #########################################
         #Mark Location of interatrial septum
-        InterAtrialSeptum = np.zeros(900)
-        for i in range(NP):
-            if i<=24:
-                InterAtrialSeptum[i] = 1
+        InterAtrialSeptum = np.zeros(NP)
+        InterAtrialSeptum[0:25] = 1
 
         #########################################
         #Define Properties: J and I1
@@ -553,8 +568,8 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
         Jpt  = vtk_to_numpy(c2p.GetPolyDataOutput().GetPointData().GetArray(NumArr+1))
 
         # Add Point Data
-        PointData = [CDG,CDM,I1pt,Jpt,Motion,InterAtrialSeptum]
-        PointNames = ['CurvGaussian','CurvMean','I1_Pt','J_Pt','Motion','InterAtrialSeptum'] 
+        PointData = [CDG,CDM,I1pt,Jpt,Motion,InterAtrialSeptum,TotalMotion[X]]
+        PointNames = ['CurvGaussian','CurvMean','I1_Pt','J_Pt','Motion','InterAtrialSeptum','TotalMotion'] 
         for i in range(len(PointNames)) :
             arrayPoint = vtk.util.numpy_support.numpy_to_vtk(PointData[i], deep=True)
             arrayPoint.SetName(PointNames[i])
