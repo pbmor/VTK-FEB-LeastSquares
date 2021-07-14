@@ -28,6 +28,9 @@ AnalysisFuncs.py:
 VTKSummary:
     a python script and pdf that offer an intro to using vtk data
 
+echoframetime.csv:
+    csv files of information about the data sets, importantly, the time of opening and closing and if the data set is included
+
 The bav02 data is also included, which is used when FileConversion.py is run
 
  
