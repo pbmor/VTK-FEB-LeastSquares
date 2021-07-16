@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import sys
+import csv
 import vtk
 from vtk.util.numpy_support import vtk_to_numpy
 
@@ -612,6 +613,7 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
         # Write data to vtp files
         if opformat == 'vtp':
             fname = prefix + os.path.splitext(Fname)[0] + '.vtp'
+            print(fname)
         elif opformat == 'vtk':
             fname = prefix + os.path.splitext(Fname)[0] + '.vtk'
         else:
@@ -641,16 +643,46 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
 if __name__=='__main__':
     import glob
     FixAndRotate = True
-    fnames = sorted(glob.glob('bav02/medial meshes - propagated from reference/with point data - recon from propagated boundary meshes/*.vtk'))
+    fnames = sorted(glob.glob('bav02/testbav02/*.vtk'))
     print(fnames,len(fnames))
     fdir = os.path.dirname(fnames[0])
-    # Check Directory
-    if not os.path.exists(fdir):
-        print('Error: Path does not exist:', fdir)
-        sys.exit()
 
-    OF,CF=3,10
-    WallArea, WallVol, LumenVol, Time, Pts, WallAreaRatio, WallVolRatio, LumenVolRatio, AvgJ, AvgI1, AvgJRatio, AvgI1Ratio, TotalMotion, N = ProcessData(flist=fnames,ref=fnames[0],FT=100.,OF=OF,CF=CF,opformat='vtk')
+    with open('echoframetime.csv') as csv_file:
+        XLData = csv.reader(csv_file, delimiter=',')
+        for row in XLData:
+            if row[0] == 'bav02':
+                DataInfo = row
+
+    #Define Frame Time Length
+    FT = DataInfo[1]
+    #Define Open Frame and Close Frame
+    OF = DataInfo[4]
+    CF = DataInfo[5]
+
+    #Choose reference frame
+    refN = int(DataInfo[4])-1 #Choose frame before valve opens
+    #refN = 0 #Choose first saved frame
+
+    common = os.path.commonprefix(fnames)
+    for Fname in list(fnames):
+        X = Fname.replace(common,'')
+        X = X.replace('.vtk','')
+        X = np.fromstring(X, dtype=int, sep=' ')
+        X=X[0]
+        if X==refN:
+            ref=Fname
+    NX = len(fnames)
+
+    if not fnames:
+        print(DataDir," is empty")
+    else:
+        fdir = os.path.dirname(fnames[0])
+        # Check Directory
+        if not os.path.exists(fdir):
+            print('Error: Path does not exist:', fdir)
+            sys.exit()
+        WallArea, WallVol, LumenVol, Time, Pts, WallAreaRatio, WallVolRatio, LumenVolRatio, AvgJ, AvgI1, AvgJRatio, AvgI1Ratio, TotalMotion, N = ProcessData(flist=fnames,ref=ref,FT=100.,OF=OF,CF=CF,opformat='vtp')
+
     print('Total Wall Area =',WallArea)
     print('Total Wall Volume =',WallVol)
     print('Total Lumen Volume =',LumenVol)
@@ -658,9 +690,6 @@ if __name__=='__main__':
     ###################################
     # Save data
     print(fdir)
-    DataLocation = 'Strains/'+fdir+'/Data.npz'
-    if OF is not None and CF is not None:
-        np.savez(DataLocation,Time=Time,Pts=Pts,WallArea=WallArea,WallVol=WallVol, LumenVol=LumenVol, WallAreaRatio=WallAreaRatio, WallVolRatio=WallVolRatio, LumenVolRatio=LumenVolRatio, N=N, OF=OF, CF=CF)
-    else:
-        np.savez(DataLocation,Time=Time,Pts=Pts,WallArea=WallArea,WallVol=WallVol, LumenVol=LumenVol, WallAreaRatio=WallAreaRatio, WallVolRatio=WallVolRatio, LumenVolRatio=LumenVolRatio, N=N)
+    DataLocation = 'bav02/Data.npz'
+    np.savez(DataLocation,Time=Time,Pts=Pts,WallArea=WallArea,WallVol=WallVol, LumenVol=LumenVol, WallAreaRatio=WallAreaRatio, WallVolRatio=WallVolRatio, LumenVolRatio=LumenVolRatio, N=N, OF=OF, CF=CF)
 
