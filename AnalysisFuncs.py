@@ -9,17 +9,30 @@ from mpl_toolkits import mplot3d
 import numpy as np
 
 
-def FixAndRotate(Pts,Nf,NP,Ndim):
-    Points = np.zeros((Nf,NP,Ndim))
+def FixAndRotate(Pts,Nf,NP):
+    '''
+    A function to return the points of the mesh, for all the times points, 
+    that has been fixed to the point (0,0,0) and rotated so that the centre 
+    line is set to be on the z axis.
+    Inputs:
+    Pts - Mesh points of all the time frames. dimensions (Nf, NP, 3)
+    Nf - Number of Frames
+    NP - Number of points 
+    '''
+
+    #Create empyt array
+    Points = np.zeros((Nf,NP,3))
 
     for X in range(Nf):
+        #Access points of a single frame
         points = Pts[X,:,:]
         ##############################
         # Redefine Points and Displacement vectors
         Mids = np.zeros((3))
         for i in range(3):
             Mids[i] = np.mean([np.amin(points[:,i]),np.amax(points[:,i])])
-
+    
+        #Move mesh centre to (0,0,0)
         for i in range(NP):
             points[i,:] = [points[i,j]-Mids[j] for j in range(3)]
 
@@ -31,12 +44,14 @@ def FixAndRotate(Pts,Nf,NP,Ndim):
          for j in range(25):
           for k in range(36):
            Points2[i,j,k] = Pointsb[i,((j)%25+k*25)%900]
-
+        
+        #Find centre line
         centre_line = np.zeros((3,25))
         for i in range(3):
             for j in range(25):
                 centre_line[i,j] = np.mean(Points2[i,j,:])
 
+        #Rotate points and save to empty array
         a   = centre_line[:,13]
         mag = np.linalg.norm(a)
         a   = a/mag
