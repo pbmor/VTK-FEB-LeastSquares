@@ -75,9 +75,9 @@ def calDisp(polydata,Points,NP,RefPointsFixed,RefMids):
     '''
     #######################################
     # Calculate Displacements and Find Points Fixed Root
-    TotDisp  = np.zeros((NP,3))
-    WallDisp = np.zeros((NP,3))
-    RootDisp = np.zeros((NP,3))
+    TotDisp     = np.zeros((NP,3))
+    WallDisp    = np.zeros((NP,3))
+    RootDisp    = np.zeros((NP,3))
     PointsFixed = np.zeros((NP,3))
 
     # Define total displacement, relative to reference frame
@@ -327,6 +327,59 @@ def calStrains(polydata, RA, NC):
     return J, I1
 
 
+def calPtVectors(polydata,Pts,NP):
+    '''
+    Finds the directional vectors for each point. 
+
+    Keyword arguments:
+    polydata -- vtk object for the current time point
+    Pts -- vtk object for the current time point
+    NP -- number of points
+
+    Returns the normal vectors, n, the longitudinal vectors, l, and the circumferential vectors, c
+
+    Warning: the longitudinal (and by asscociation circumferential) vectors are dependent on the mesh structure.
+    '''
+
+    #Use vtk to get point normals
+    normals = vtk.vtkPolyDataNormals()
+    normals.SetInputData(polydata)
+    normals.SetFlipNormals(True)
+    normals.Update()
+    n = vtk_to_numpy(normals.GetOutput().GetPointData().GetNormals())
+
+    #Create empty arrays for longitudinal and circumferential vectors
+    l = np.zeros((NP,3))
+    c = np.zeros((NP,3))
+
+    #Restructure Pts to be in list of 25 rings with 36 points each (mesh dependent)
+    Points = np.zeros((3,25,36))
+    for i in range(3):
+        for j in range(25):
+            for k in range(36):
+                Points[i,j,k] = Pts[((j)%25+k*25)%900,i]
+
+    #Find longitudinal vectors
+    centre_line = np.zeros((3,25))
+    for i in range(3):
+        for j in range(24):
+            for k in range(36):
+                l[((j)%25+k*25)%900,i] = Points[i,(j+1)%25,k] - Points[i,j,k]
+
+        for j in [24]:
+            for k in range(36):
+                l[((j)%25+k*25)%900,i] = Points[i,j,k] - Points[i,(j-1),k]
+    
+    #Make unit vectors and find circumferential vectors
+    for i in range(900):
+        #Make normal and longitudinal vectors unit vectors
+        n[i,:] /= np.sqrt(sum((n[i,j])**2 for j in range(3)))
+        l[i,:] /= np.sqrt(sum((l[i,j]**2) for j in range(3)))
+        #Calculate circumferential vector
+        c[i,:]  = np.cross(n[i,:],l[i,:])
+        c[i,:] /= np.sqrt(sum((c[i,j]**2) for j in range(3)))
+
+    return n, l, c
 
 def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True,opformat='vtp'):
     '''
@@ -521,6 +574,10 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
         J, I1 = calStrains(polydata,RA,NC)
 
         #########################################
+        #Define Normal, Longitudinal, and Circumferential vectors
+        n, l, c = calPtVectors(polydata,Pts[X,:,:],NP)
+                 
+        #########################################
         # Define Curvature
 
         # Define Gaussian Curvature
@@ -579,8 +636,8 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
             dataPoints.Modified()
 
         # Add Vector Data
-        VectorData = [TotDisp,WallDisp,RootDisp]
-        VectorNames = ['Displacement_Total','Displacement_Wall','Displacement_Root'] 
+        VectorData = [TotDisp,WallDisp,RootDisp,n,l,c]
+        VectorNames = ['Displacement_Total','Displacement_Wall','Displacement_Root','Normal','Longtudinal','Circumferential'] 
         for i in range(len(VectorNames)) :
             arrayVector = vtk.util.numpy_support.numpy_to_vtk(VectorData[i], deep=True)
             arrayVector.SetName(VectorNames[i])
