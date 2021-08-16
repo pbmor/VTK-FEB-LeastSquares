@@ -1,8 +1,8 @@
 import vtk
 import numpy as np
 from vtk.util.numpy_support import vtk_to_numpy
-reader = vtk.vtkPolyDataReader()
-reader.SetFileName('resample.vtk')
+reader = vtk.vtkUnstructuredGridReader()
+reader.SetFileName('extrude2.vtk')
 reader.ReadAllScalarsOn()
 reader.ReadAllVectorsOn()
 reader.Update()
@@ -13,7 +13,7 @@ pts = pdi.GetPoints()
 in_pd = pdi.GetPointData()
 X = vtk_to_numpy(pts.GetData ())
 
-f=open('test.feb','w')
+f=open('test-hex.feb','w')
 
 #Generic starting information
 f.write('<?xml version="1.0" encoding="ISO-8859-1"?>\n')
@@ -70,13 +70,13 @@ f.write('\t\t<Nodes name="part1">\n')
 for i in range(0,num_pts):
     f.write(f'\t\t\t<node id="{i+1}">{X[i,0]},{X[i,1]},{X[i,2]}</node>\n')
 f.write('\t\t</Nodes>\n')
-f.write('\t\t<Elements type="quad4" name="Part1">\n')
+f.write('\t\t<Elements type="hex8" name="Part1">\n')
 for i in range(0,num_cells):
     c = pdi.GetCell(i)
-    if c.GetNumberOfPoints()!=4:
+    if c.GetNumberOfPoints()!=8:
         raise ValueError()
     f.write(f'\t\t\t<elem id="{i+1}">{1+c.GetPointId(0)}')
-    for j in range(1,4):
+    for j in range(1,c.GetNumberOfPoints()):
         f.write(f',{1+c.GetPointId(j)}')
     f.write('</elem>\n')
 f.write('\t\t</Elements>\n')
@@ -97,34 +97,36 @@ f.write('\t\t</NodeSet>\n')
 
 #Loading is applied on the same surface as the mesh
 f.write('\t\t<Surface name="PressureLoad1">\n')
-for i in range(0,num_cells):
+k=1
+for i in range(0,num_cells,4):
     c = pdi.GetCell(i)
-    if c.GetNumberOfPoints()!=4:
+    if c.GetNumberOfPoints()!=8:
         raise ValueError()
-    f.write(f'\t\t\t<quad4 id="{i+1}">{1+c.GetPointId(0)}')
+    f.write(f'\t\t\t<quad4 id="{k}">{1+c.GetPointId(0)}')
     for j in range(1,4):
         f.write(f',{1+c.GetPointId(j)}')
     f.write('</quad4>\n')
+    k += 1
 f.write('\t\t</Surface>\n')
 f.write('\t</Mesh>\n')
 
 #Mesh domain assigns material to the surface
-f.write('\t<MeshDomains>\n\t\t<ShellDomain name="Part1" mat="Material1">\n\t\t\t<shell_normal_nodal>1</shell_normal_nodal>\n\t\t</ShellDomain>\n\t</MeshDomains>\n')
+f.write('\t<MeshDomains>\n\t\t<SolidDomain name="Part1" mat="Material1"/>\n\t</MeshDomains>\n')
 
 #Mesh data where we assign thickness (and possibly fiber directions)
-thick = vtk_to_numpy(in_pd.GetArray('Thickness'))
-f.write('\t<MeshData>\n')
-f.write('\t\t<ElementData var="shell thickness" elem_set="Part1">\n')
-for i in range(0,num_cells):
-    c = pdi.GetCell(i)
-    f.write(f'\t\t\t<e lid="{i+1}">{thick[c.GetPointId(0)]}')
-    for j in range(1,4):
-        f.write(f',{thick[c.GetPointId(j)]}')
-    f.write('</e>\n')
+#thick = vtk_to_numpy(in_pd.GetArray('Thickness'))
+#f.write('\t<MeshData>\n')
+#f.write('\t\t<ElementData var="shell thickness" elem_set="Part1">\n')
+#for i in range(0,num_cells):
+#    c = pdi.GetCell(i)
+#    f.write(f'\t\t\t<e lid="{i+1}">{thick[c.GetPointId(0)]}')
+#    for j in range(1,4):
+#        f.write(f',{thick[c.GetPointId(j)]}')
+#    f.write('</e>\n')
     #For constant thickness
     #f.write(f'\t\t\t<e lid="{i+1}">1,1,1,1</e>\n')
-f.write('\t\t</ElementData>\n')
-f.write('\t</MeshData>\n')
+#f.write('\t\t</ElementData>\n')
+#f.write('\t</MeshData>\n')
 
 #Boundary conditions
 f.write('\t<Boundary>\n')
@@ -139,7 +141,7 @@ f.write('\t</Boundary>\n')
 #Apply load due to pressure
 f.write('\t<Loads>\n')
 f.write('\t\t<surface_load name="PressureLoad1" type="pressure" surface="PressureLoad1">\n')
-f.write('\t\t\t<pressure lc="1">-0.005332</pressure>\n')
+f.write('\t\t\t<pressure lc="1">-0.01332</pressure>\n')
 f.write('\t\t\t<linear>0</linear>\n')
 f.write('\t\t\t<symmetric_stiffness>1</symmetric_stiffness>\n')
 f.write('\t\t</surface_load>\n')
