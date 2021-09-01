@@ -572,6 +572,10 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
         #########################################
         #Define Properties: J and I1
         J, I1 = calStrains(polydata,RA,NC)
+        
+        # Save areas and volumes for each frame
+        AvgJ[X]       = np.mean(J)
+        AvgI1[X]      = np.mean(I1)
 
         #########################################
         #Define Normal, Longitudinal, and Circumferential vectors
@@ -627,7 +631,7 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
 
         # Add Point Data
         PointData = [CDG,CDM,I1pt,Jpt,Motion,InterAtrialSeptum,TotalMotion[X]]
-        PointNames = ['CurvGaussian','CurvMean','I1_Pt','J_Pt','Motion','InterAtrialSeptum','TotalMotion'] 
+        PointNames = ['Curv_Gaussian','Curv_Mean','I1_Pt','J_Pt','Motion','IAS','Total_Motion']
         for i in range(len(PointNames)) :
             arrayPoint = vtk.util.numpy_support.numpy_to_vtk(PointData[i], deep=True)
             arrayPoint.SetName(PointNames[i])
@@ -648,10 +652,10 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
         # Add Field Data
         if OF is not None and CF is not None:
             FieldData = [WallArea[X], WallVol[X],LumenVol[X],ValvePosition[X]]
-            FieldNames = ['WallArea','WallVolume','LumenVolume','ValvePosition'] 
+            FieldNames = ['Wall_Area','Wall_Volume','Lumen_Volume','Valve_Position'] 
         else:
             FieldData = [WallArea[X], WallVol[X],LumenVol[X]]
-            FieldNames = ['WallArea','WallVolume','LumenVolume'] 
+            FieldNames = ['Wall_Area','Wall_Volume','Lumen_Volume'] 
 
         for i in range(len(FieldNames)) :
             arrayField = vtk.util.numpy_support.numpy_to_vtk(FieldData[i], deep=True)
@@ -694,6 +698,8 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
     WallAreaRatio[:]  = WallArea[:]/WallArea[0]
     WallVolRatio[:]   = WallVol[:]/WallVol[0]
     LumenVolRatio[:]  = LumenVol[:]/LumenVol[0]
+    AvgJRatio[:]      = AvgJ[:]/AvgJ[0]
+    AvgI1Ratio[:]     = AvgI1[:]/AvgI1[0]
 
     return WallArea, WallVol, LumenVol, Time, Pts, WallAreaRatio, WallVolRatio, LumenVolRatio, AvgJ, AvgI1, AvgJRatio, AvgI1Ratio, TotalMotion, N
 
