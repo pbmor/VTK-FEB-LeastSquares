@@ -21,8 +21,6 @@ def OrderList(flist,N,ref):
     Fno = np.zeros(N)
     FId = np.zeros(N)
 
-    print(flist)
-
     FListOrdered = [None]*N
     common = os.path.commonprefix(flist)
     for i, Fname in enumerate(flist):
@@ -284,7 +282,7 @@ def calAreaAndVol(polydata,ThickData,NC,NP):
 
     return TotalWallArea, TotalWallVolume, TotalLumenVolume
 
-def calStrains(polydata, RA, NC):
+def calStrains(polydata, RA, NC, l_Cell, c_Cell):
     '''
     Calculate strain invariants with respect to the reference basis
 
@@ -292,11 +290,17 @@ def calStrains(polydata, RA, NC):
     polydata -- vtk object for the current time point
     RA -- numpy array of the reference basis vectors of size NC X 2 X 3
     NC -- number of cells
+    l_Cell -- longitudinal unit vector 
+    c_Cell -- circumferential unit vector 
 
-    Returns two numpy arrays of invariant J and I1 at the cells
+    Returns two numpy arrays of invariant J and I1 at the cells, and the associated logngitudinal and circumferential strains
+
+    Warning: l_Cell and c_Cell are mesh dependent, thus l_Strain and c_Strain are also mesh dependent
     '''
     I1 = np.zeros(NC)
     J  = np.zeros(NC)
+    l_Strain = np.zeros(NC)
+    c_Strain = np.zeros(NC)
 
     for i in range(NC):
         Cell = np.array(polydata.GetCell(i).GetPoints().GetData())
@@ -324,10 +328,14 @@ def calStrains(polydata, RA, NC):
         I1[i] = trC
         J[i]  = np.sqrt((trC**2-trC2)/2)
     
-    return J, I1
+        # 
+        l_Strain[i] = np.dot(l_Cell[i,:],np.dot(C,l_Cell[i,:]))
+        c_Strain[i] = np.dot(c_Cell[i,:],np.dot(C,c_Cell[i,:]))
+        
+    return J, I1, l_Strain, c_Strain
 
 
-def calPtVectors(polydata,Pts,NP):
+def calVectors(polydata,Pts,Cells,NP,NC,CellIds):
     '''
     Finds the directional vectors for each point. 
 
@@ -335,8 +343,11 @@ def calPtVectors(polydata,Pts,NP):
     polydata -- vtk object for the current time point
     Pts -- vtk object for the current time point
     NP -- number of points
+    NC -- number of cells
+    CellIds -- list of point ids for each cell
 
-    Returns the normal vectors, n, the longitudinal vectors, l, and the circumferential vectors, c
+    Returns the normal vectors, n, the longitudinal vectors, l, and the circumferential vectors, c, 
+    for both the points and the cells (with suffices *_Pt and *_Cell respectively) 
 
     Warning: the longitudinal (and by asscociation circumferential) vectors are dependent on the mesh structure.
     '''
@@ -346,11 +357,18 @@ def calPtVectors(polydata,Pts,NP):
     normals.SetInputData(polydata)
     normals.SetFlipNormals(True)
     normals.Update()
-    n = vtk_to_numpy(normals.GetOutput().GetPointData().GetNormals())
+    
+    n_Pt = vtk_to_numpy(normals.GetOutput().GetPointData().GetNormals())
+    
+    n_Cell = np.zeros((NC,3)) 
 
     #Create empty arrays for longitudinal and circumferential vectors
-    l = np.zeros((NP,3))
-    c = np.zeros((NP,3))
+    l_Pt = np.zeros((NP,3))
+    c_Pt = np.zeros((NP,3))
+    Circ_Strain = np.zeros((NP,3))
+    Long_Strain = np.zeros((NP,3))
+    l_Cell = np.zeros((NC,3))
+    c_Cell = np.zeros((NC,3))
 
     #Restructure Pts to be in list of 25 rings with 36 points each (mesh dependent)
     Points = np.zeros((3,25,36))
@@ -360,26 +378,42 @@ def calPtVectors(polydata,Pts,NP):
                 Points[i,j,k] = Pts[((j)%25+k*25)%900,i]
 
     #Find longitudinal vectors
-    centre_line = np.zeros((3,25))
     for i in range(3):
         for j in range(24):
             for k in range(36):
-                l[((j)%25+k*25)%900,i] = Points[i,(j+1)%25,k] - Points[i,j,k]
+                l_Pt[((j)%25+k*25)%900,i] = Points[i,(j+1)%25,k] - Points[i,j,k]
 
         for j in [24]:
             for k in range(36):
-                l[((j)%25+k*25)%900,i] = Points[i,j,k] - Points[i,(j-1),k]
-    
-    #Make unit vectors and find circumferential vectors
-    for i in range(900):
-        #Make normal and longitudinal vectors unit vectors
-        n[i,:] /= np.sqrt(sum((n[i,j])**2 for j in range(3)))
-        l[i,:] /= np.sqrt(sum((l[i,j]**2) for j in range(3)))
-        #Calculate circumferential vector
-        c[i,:]  = np.cross(n[i,:],l[i,:])
-        c[i,:] /= np.sqrt(sum((c[i,j]**2) for j in range(3)))
+                l_Pt[((j)%25+k*25)%900,i] = Points[i,j,k] - Points[i,(j-1),k]
 
-    return n, l, c
+
+    #Make unit vectors and find circumferential vectors
+    for i in range(NP):
+        #Make normal and longitudinal vectors unit vectors
+        n_Pt[i,:] /= np.sqrt(sum((n_Pt[i,j])**2 for j in range(3)))
+
+        l_Pt[i,:] /= np.sqrt(sum((l_Pt[i,j]**2) for j in range(3)))
+        #Calculate circumferential vector
+        c_Pt[i,:]  = np.cross(n_Pt[i,:],l_Pt[i,:])
+        c_Pt[i,:] /= np.sqrt(sum((c_Pt[i,j]**2) for j in range(3))) 
+    
+    Cts = np.zeros((NC,3))
+    for i in range(NC):
+        for j in range(3):
+            Cts[i,j] = (sum(Cells[i,k,j] for k in range(3)))/3 
+            n_Cell[i,j] = (sum(n_Pt[int(CellIds[i,k]),j] for k in range(3)))/3
+            l_Cell[i,j] = (sum(l_Pt[int(CellIds[i,k]),j] for k in range(3)))/3
+            c_Cell[i,j] = (sum(c_Pt[int(CellIds[i,k]),j] for k in range(3)))/3
+
+    for i in range(NC):
+        #Make normal and longitudinal vectors unit vectors
+        l_Cell[i,:] /= np.sqrt(sum((l_Cell[i,j]**2) for j in range(3)))
+        #Calculate circumferential vector
+        c_Cell[i,:] /= np.sqrt(sum((c_Cell[i,j]**2) for j in range(3)))
+        n_Cell[i,:] /= np.sqrt(sum((n_Cell[i,j])**2 for j in range(3)))
+    
+    return n_Pt, l_Pt, c_Pt, n_Cell, l_Cell, c_Cell
 
 def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True,opformat='vtp'):
     '''
@@ -449,12 +483,12 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
 
     # Define empty array for reference basis
     RA = np.zeros((NC,2,3))
-
+    Cells = np.zeros((NC,3,3))
     for i in range(NC):
-        Cells = vtk_to_numpy(polydata.GetCell(i).GetPoints().GetData())
+        Cells[i,:,:] = vtk_to_numpy(polydata.GetCell(i).GetPoints().GetData())
         # Define refernce cell vectors
-        RA[i,0,:] = Cells[2,:]-Cells[0,:]
-        RA[i,1,:] = Cells[2,:]-Cells[1,:]
+        RA[i,0,:] = Cells[i,2,:]-Cells[i,0,:]
+        RA[i,1,:] = Cells[i,2,:]-Cells[i,1,:]
 
 
     ###########################################
@@ -533,6 +567,13 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
         # Save Point coordinates to array to be saved
         Pts[X,:,:] = vtk_to_numpy(polydata.GetPoints().GetData())
 
+        Cells = np.zeros((NC,3,3))
+        CellIds = np.zeros((NC,3))
+        for i in range(NC):
+            Cells[i,:,:] = vtk_to_numpy(polydata.GetCell(i).GetPoints().GetData())
+            for j in range(3):
+                CellIds[i,j] = (polydata.GetCell(i).GetPointIds().GetId(j))
+
         #########################################
         # Calculate Displacements
         TotDisp, WallDisp, RootDisp = calDisp(polydata,Pts[X,:,:],NP,RefPointsFixed,RefMids)
@@ -570,17 +611,17 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
         InterAtrialSeptum[0:25] = 1
 
         #########################################
+        #Define Normal, Longitudinal, and Circumferential vectors
+        n_Pt, l_Pt, c_Pt, n_Cell, l_Cell, c_Cell = calVectors(polydata,Pts[X,:,:],Cells,NP,NC,CellIds)
+
+        #########################################
         #Define Properties: J and I1
-        J, I1 = calStrains(polydata,RA,NC)
-        
+        J, I1, Long_Strain, Circ_Strain = calStrains(polydata,RA,NC, l_Cell, c_Cell)
+
         # Save areas and volumes for each frame
         AvgJ[X]       = np.mean(J)
         AvgI1[X]      = np.mean(I1)
 
-        #########################################
-        #Define Normal, Longitudinal, and Circumferential vectors
-        n, l, c = calPtVectors(polydata,Pts[X,:,:],NP)
-                 
         #########################################
         # Define Curvature
 
@@ -610,8 +651,8 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
         # Add Data to Files and Write Files
 
         # Add Cell Data
-        CellData  = [I1,J]
-        CellNames = ['I1','J'] 
+        CellData  = [I1, J, Long_Strain, Circ_Strain]
+        CellNames = ['I1','J','Long_Strain', 'Circ_Strain'] 
         for i in range(len(CellNames)) :
             arrayCell = vtk.util.numpy_support.numpy_to_vtk(CellData[i], deep=True)
             arrayCell.SetName(CellNames[i])
@@ -625,13 +666,14 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
         c2p.AddInputData(polydata)
         c2p.Update()
         c2p.GetOutput()
-
         I1pt = vtk_to_numpy(c2p.GetPolyDataOutput().GetPointData().GetArray(NumArr))
         Jpt  = vtk_to_numpy(c2p.GetPolyDataOutput().GetPointData().GetArray(NumArr+1))
+        l_Strain_Pt = vtk_to_numpy(c2p.GetPolyDataOutput().GetPointData().GetArray(NumArr+2))
+        c_Strain_Pt = vtk_to_numpy(c2p.GetPolyDataOutput().GetPointData().GetArray(NumArr+3))
 
         # Add Point Data
-        PointData = [CDG,CDM,I1pt,Jpt,Motion,InterAtrialSeptum,TotalMotion[X]]
-        PointNames = ['Curv_Gaussian','Curv_Mean','I1_Pt','J_Pt','Motion','IAS','Total_Motion']
+        PointData = [CDG,CDM,I1pt,Jpt,Motion,InterAtrialSeptum,TotalMotion[X],l_Strain_Pt,c_Strain_Pt]
+        PointNames = ['Curv_Gaussian','Curv_Mean','I1_Pt','J_Pt','Motion','IAS','Total_Motion','Long_Strain_Pt','Circ_Strain_Pt']
         for i in range(len(PointNames)) :
             arrayPoint = vtk.util.numpy_support.numpy_to_vtk(PointData[i], deep=True)
             arrayPoint.SetName(PointNames[i])
@@ -640,12 +682,22 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
             dataPoints.Modified()
 
         # Add Vector Data
-        VectorData = [TotDisp,WallDisp,RootDisp,n,l,c]
-        VectorNames = ['Displacement_Total','Displacement_Wall','Displacement_Root','Normal','Longtudinal','Circumferential'] 
+        VectorData = [TotDisp,WallDisp,RootDisp,n_Pt,l_Pt,c_Pt,Long_Strain,Circ_Strain]
+        VectorNames = ['Displacement_Total','Displacement_Wall','Displacement_Root','Normal','Longtudinal','Circumferential','Longtudinal_Strain','Circumferential_Strain'] 
         for i in range(len(VectorNames)) :
             arrayVector = vtk.util.numpy_support.numpy_to_vtk(VectorData[i], deep=True)
             arrayVector.SetName(VectorNames[i])
             dataVectors = polydata.GetPointData()
+            dataVectors.AddArray(arrayVector)
+            dataVectors.Modified()
+
+        # Add Vector Data
+        VectorData = [n_Cell,l_Cell,c_Cell]
+        VectorNames = ['Normal','Longtudinal','Circumferential']
+        for i in range(len(VectorNames)) :
+            arrayVector = vtk.util.numpy_support.numpy_to_vtk(VectorData[i], deep=True)
+            arrayVector.SetName(VectorNames[i])
+            dataVectors = polydata.GetCellData()
             dataVectors.AddArray(arrayVector)
             dataVectors.Modified()
 
@@ -674,7 +726,6 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
         # Write data to vtp files
         if opformat == 'vtp':
             fname = prefix + os.path.splitext(Fname)[0] + '.vtp'
-            print(fname)
         elif opformat == 'vtk':
             fname = prefix + os.path.splitext(Fname)[0] + '.vtk'
         else:
@@ -689,10 +740,10 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
             writer = vtk.vtkDataSetWriter()
         else:
             raise ValueError("Only vtp and vtk output formats are allowed")
-        print(fname)
+        
         writer.SetFileName(fname)
         writer.SetInputData(polydata)
-        print('Writing',fname)
+        print('Writing ',fname)
         writer.Write()
 
     WallAreaRatio[:]  = WallArea[:]/WallArea[0]
@@ -752,7 +803,6 @@ if __name__=='__main__':
    
     ###################################
     # Save data
-    print(fdir)
     DataLocation = 'bav02/Data.npz'
     np.savez(DataLocation,Time=Time,Pts=Pts,WallArea=WallArea,WallVol=WallVol, LumenVol=LumenVol, WallAreaRatio=WallAreaRatio, WallVolRatio=WallVolRatio, LumenVolRatio=LumenVolRatio, N=N, OF=OF, CF=CF)
 
