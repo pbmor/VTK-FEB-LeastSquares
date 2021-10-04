@@ -398,10 +398,8 @@ def calVectors(polydata,Pts,Cells,NP,NC,CellIds):
         c_Pt[i,:]  = np.cross(n_Pt[i,:],l_Pt[i,:])
         c_Pt[i,:] /= np.sqrt(sum((c_Pt[i,j]**2) for j in range(3))) 
     
-    Cts = np.zeros((NC,3))
     for i in range(NC):
         for j in range(3):
-            Cts[i,j] = (sum(Cells[i,k,j] for k in range(3)))/3 
             n_Cell[i,j] = (sum(n_Pt[int(CellIds[i,k]),j] for k in range(3)))/3
             l_Cell[i,j] = (sum(l_Pt[int(CellIds[i,k]),j] for k in range(3)))/3
             c_Cell[i,j] = (sum(c_Pt[int(CellIds[i,k]),j] for k in range(3)))/3
@@ -666,10 +664,11 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
         c2p.AddInputData(polydata)
         c2p.Update()
         c2p.GetOutput()
-        I1pt = vtk_to_numpy(c2p.GetPolyDataOutput().GetPointData().GetArray(NumArr))
-        Jpt  = vtk_to_numpy(c2p.GetPolyDataOutput().GetPointData().GetArray(NumArr+1))
-        l_Strain_Pt = vtk_to_numpy(c2p.GetPolyDataOutput().GetPointData().GetArray(NumArr+2))
-        c_Strain_Pt = vtk_to_numpy(c2p.GetPolyDataOutput().GetPointData().GetArray(NumArr+3))
+        
+        I1pt = vtk_to_numpy(c2p.GetPolyDataOutput().GetPointData().GetArray(6))
+        Jpt  = vtk_to_numpy(c2p.GetPolyDataOutput().GetPointData().GetArray(7))
+        l_Strain_Pt = vtk_to_numpy(c2p.GetPolyDataOutput().GetPointData().GetArray(8))
+        c_Strain_Pt = vtk_to_numpy(c2p.GetPolyDataOutput().GetPointData().GetArray(5))
 
         # Add Point Data
         PointData = [CDG,CDM,I1pt,Jpt,Motion,InterAtrialSeptum,TotalMotion[X],l_Strain_Pt,c_Strain_Pt]
@@ -681,9 +680,9 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
             dataPoints.AddArray(arrayPoint)
             dataPoints.Modified()
 
-        # Add Vector Data
-        VectorData = [TotDisp,WallDisp,RootDisp,n_Pt,l_Pt,c_Pt,Long_Strain,Circ_Strain]
-        VectorNames = ['Displacement_Total','Displacement_Wall','Displacement_Root','Normal','Longtudinal','Circumferential','Longtudinal_Strain','Circumferential_Strain'] 
+        # Add Vector Data on Points
+        VectorData = [TotDisp,WallDisp,RootDisp,n_Pt,l_Pt,c_Pt]
+        VectorNames = ['Displacement_Total','Displacement_Wall','Displacement_Root','Normal','Longtudinal','Circumferential']
         for i in range(len(VectorNames)) :
             arrayVector = vtk.util.numpy_support.numpy_to_vtk(VectorData[i], deep=True)
             arrayVector.SetName(VectorNames[i])
@@ -691,7 +690,7 @@ def ProcessData(flist,ref,FT,OF=None,CF=None,prefix='Strains/',FixAndRotate=True
             dataVectors.AddArray(arrayVector)
             dataVectors.Modified()
 
-        # Add Vector Data
+        # Add Vector Data on Cells
         VectorData = [n_Cell,l_Cell,c_Cell]
         VectorNames = ['Normal','Longtudinal','Circumferential']
         for i in range(len(VectorNames)) :
