@@ -72,6 +72,7 @@ def GetRadii(Points,Nf,NP,Ndim):
     FramePoints = np.zeros((Nf,25,36,3))
     Radius = np.zeros((Nf,25,36))
     zAvg = np.zeros((Nf,25))
+    Ring = np.zeros((Nf,25,37,3))
     for X in range(Nf):
 
         for i in range(25):
@@ -79,19 +80,17 @@ def GetRadii(Points,Nf,NP,Ndim):
           for k in range(3):
            FramePoints[X,i,j,k] = Points[X,((13+i)%25+j*25)%900,k]
 
-        Ring = np.zeros((25,37,3))
-
         for i in range(25):
             for k in range(3):
-                Ring[i,0:36,k] = FramePoints[X,i,:,k]
-                Ring[i,36,k]   = Ring[i,0,k]
+                Ring[X,i,0:36,k] = FramePoints[X,i,:,k]
+                Ring[X,i,36,k]   = Ring[X,i,0,k]
 
         for i in range(25):
             zAvg[X,i] = np.mean(FramePoints[X,i,0:35,2])
             for j in range(36):
-                Radius[X,i,j] = np.sqrt(Ring[i,j,0]**2+Ring[i,j,1]**2)
+                Radius[X,i,j] = np.sqrt(Ring[X,i,j,0]**2+Ring[X,i,j,1]**2)
 
-    return Radius, FramePoints, zAvg
+    return Radius, FramePoints, zAvg, Ring
 
 
 def TetraMesh(polydata,Points,NC,NP):
