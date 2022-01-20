@@ -131,6 +131,8 @@ for figN, d in enumerate(List_of_Subdirectories):
     plt.title('Starting from minimum mean radius, relative to the reference frame')
     plt.legend(custom_lines, ['BAVs', 'TAVs'], loc='upper right')
 
+    DataLocation = os.path.join('./RadiusData/',DataDir+'_RadiusData.npz')
+    np.savez(DataLocation,Time = Time ,MeanRadius_fromMin=MeanRadius_fromMin,MeanRadiusRatio_fromMin=(MeanRadius_fromMin/MeanRadius[0]))
 
 plt.show()
 
