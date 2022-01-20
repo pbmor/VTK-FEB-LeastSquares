@@ -73,6 +73,8 @@ def GetRadii(Points,Nf,NP,Ndim):
     Radius = np.zeros((Nf,25,36))
     zAvg = np.zeros((Nf,25))
     Ring = np.zeros((Nf,25,37,3))
+    CentreLine = np.zeros((Nf,25,3))
+    PtVector   =np.zeros((Nf,25,36,3))
     for X in range(Nf):
 
         for i in range(25):
@@ -81,14 +83,16 @@ def GetRadii(Points,Nf,NP,Ndim):
            FramePoints[X,i,j,k] = Points[X,((13+i)%25+j*25)%900,k]
 
         for i in range(25):
-            for k in range(3):
-                Ring[X,i,0:36,k] = FramePoints[X,i,:,k]
-                Ring[X,i,36,k]   = Ring[X,i,0,k]
-
+            for j in range(3):
+                Ring[X,i,0:36,j]  = FramePoints[X,i,:,j]
+                Ring[X,i,36,j]    = Ring[X,i,0,j]
+                CentreLine[X,i,j] = np.mean(Ring[X,i,0:37,j])
+            
         for i in range(25):
             zAvg[X,i] = np.mean(FramePoints[X,i,0:35,2])
             for j in range(36):
-                Radius[X,i,j] = np.sqrt(Ring[X,i,j,0]**2+Ring[X,i,j,1]**2)
+                PtVector[X,i,j,:] = Ring[X,i,j,:] - CentreLine[X,i,:] 
+                Radius[X,i,j] = np.sqrt(PtVector[X,i,j,0]**2+PtVector[X,i,j,1]**2+PtVector[X,i,j,2]**2)
 
     return Radius, FramePoints, zAvg, Ring
 
