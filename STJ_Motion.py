@@ -55,7 +55,7 @@ for figN, d in enumerate(List_of_Subdirectories):
     STJ_WallMotion  = np.zeros((Nf,36,3))
     STJ_RootMotion  = np.zeros((Nf,36,3))
     STJ_TotalMotion = np.zeros((Nf,36,3))
-    STJ_Pts         = np.zeros((Nf,36,3))
+    STJ_Pts = np.zeros((36,3))
     Time            = np.zeros(Nf)
     # Re-order filename list to start with reference frame
     FListOrdered, FId, refN = OrderList(fnames,Nf,ref)
@@ -93,7 +93,7 @@ for figN, d in enumerate(List_of_Subdirectories):
                 STJ_RootMotion[X,j]  = Disp_root[i]
                 STJ_TotalMotion[X,j] = Disp_total[i]
                 if X == refID:
-                    STJ_Pts[X,j] = points[i]
+                    STJ_Pts[j] = points[i]
                 j += 1
    
     DataLocation = os.path.join('./STJMotionData/',DataDir+'_STJMotion.npz')
