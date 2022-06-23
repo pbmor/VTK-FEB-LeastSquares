@@ -546,7 +546,7 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,C
                 Pt.text = str(TimeInterp[idx])+','+str(PressureInterp[idx]) 
        
     # Rewrite .feb file with paramter updates
-    tree.write(DataDir + '.feb',xml_declaration=True,encoding="ISO-8859-1")
+    tree.write('./FEB_Files/' + DataDir + '.feb',xml_declaration=True,encoding="ISO-8859-1")
     
     #Run updated .feb file to create new .xplt file
     os.system('/Applications/FEBioStudio/FEBioStudio.app/Contents/MacOS/febio3 -i '+ './FEB_Files/' + DataDir+'.feb >/dev/null 2>&1')
@@ -774,7 +774,7 @@ def RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,Profil
         
     if ModelParChoice:
         if ModelChoice == 'MR':
-            C = np.concatenate((C,[0.0,10,10,10]))
+            C = np.concatenate((C,[1,10,10,10]))
             B_Min = np.concatenate((B_Min,[0,0,0,0]))
             B_Max = np.concatenate((B_Max,[100,1000,1000,1000]))
         if ModelChoice == 'tiMR':
@@ -825,7 +825,7 @@ def RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,Profil
         B_Max = np.concatenate((B_Max,[1,100,100,100]))
     
     #Create .feb file of VTK remeshed case
-    VTK2Feb_Func('./FEB_Files/' + DataDir,ref,nF,nCls,Disp_Wall_STJ,Disp_Wall_VAJ,STJ_Id,VAJ_Id,Circ_Cls,ProfileChoice,ModelChoice,CF)
+    VTK2Feb_Func(DataDir,ref,nF,nCls,Disp_Wall_STJ,Disp_Wall_VAJ,STJ_Id,VAJ_Id,Circ_Cls,ProfileChoice,ModelChoice,CF)
     
     #Choose to run Least Squares optimisation or just run febio simulation
     if RunLSChoice:
@@ -870,13 +870,12 @@ if __name__=='__main__':
     FListOrdered, FId, refN = OrderList(flist, nF, ref)
     
     #Choose if data needs remeshed
-    #Choose if data needs remeshed
     PressureChoice = False           # Choose to vary pressure magnitude
     ModelParChoice = True            # Choose to vary modelparameters
-    RunLSChoice    = False           # Choose to run least Squares (or default/initial guess)
-    ProfileChoice  = ['Bio']         #['Triangle','Step','SmoothStep','Bio','Fourier','Fitted'] # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Bio', 'Fourier','Fitted'
+    RunLSChoice    = True            # Choose to run least Squares (or default/initial guess)
+    ProfileChoice  = ['Windkess']    # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Bio', 'Fourier','Fitted'
     ResChoice      = ['CellPlane']   # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
-    ModelChoice    = ['MR']        #Choose model from 'MR','tiMR','Ogden' and 'Fung'
+    ModelChoice    = ['MR']          # Choose model from 'MR','tiMR','Ogden' and 'Fung'
     
     #Create empty array for params
     Params = []
@@ -915,8 +914,8 @@ if __name__=='__main__':
                 else:
                     print('Pressure Magnitude: ',-0.005332)
                     
-                if MC:
-                    if ModelChoice == 'MR':
+                if ModelParChoice:
+                    if MC == 'MR':
                         Model_density = Out[0+nC]
                         Model_C1 = Out[1+nC]
                         Model_C2 = Out[2+nC]
@@ -924,7 +923,7 @@ if __name__=='__main__':
                         print('Model C1: ',Model_C1)
                         print('Model C2: ',Model_C2)
                         print('Model k:  ',Model_k)
-                    if ModelChoice == 'tiMR':
+                    if MC == 'tiMR':
                         Model_density = Out[0+nC]
                         Model_C1      = Out[1+nC]
                         Model_C2      = Out[2+nC]
@@ -941,7 +940,7 @@ if __name__=='__main__':
                         print('Model C5: ',Model_C5)
                         print('Model lam_max:  ',Model_lam_max)
                         print('Model k:  ',Model_k)
-                    elif ModelChoice == 'Ogden':
+                    elif MC == 'Ogden':
                         Model_bulk = Out[0+nC]
                         Model_c1   = Out[1+nC]
                         Model_c2   = Out[2+nC]
@@ -955,7 +954,7 @@ if __name__=='__main__':
                         Model_m4   = Out[10+nC]
                         Model_m5   = Out[11+nC]
                         Model_m6   = Out[12+nC]
-                    elif ModelChoice == 'Fung':
+                    elif MC == 'Fung':
                         Model_E1   = Out[0+nC]
                         Model_E2   = Out[1+nC]
                         Model_E3   = Out[2+nC]
@@ -996,7 +995,7 @@ if __name__=='__main__':
                     
                 style = col +line
                 
-                XPLTfilename = DataDir + '.xplt'
+                XPLTfilename = './FEB_Files/' + DataDir + '.xplt'
                 feb,file_size,nStates, mesh = GetFEB(XPLTfilename)
                 nNodes, nElems, nVar, StateTimes, VarNames, VarType = GetMeshInfo(feb)
         
@@ -1008,7 +1007,7 @@ if __name__=='__main__':
                 
                 Time = np.zeros(nStates)
                 Pressure = np.zeros(nStates)
-                tree = et.parse(DataDir + '.feb')
+                tree = et.parse('./FEB_Files/' + DataDir + '.feb')
                 Pressure_Mag = float(tree.find('Loads').find('surface_load').find('pressure').text)
                 for idx, Pt in enumerate(tree.find('LoadData').find('load_controller').find('points').findall("point")):
                     for i in range(len(Pt.text)):
