@@ -12,6 +12,7 @@ This repository contains the scripts:
     
 Also included is the directory:
     Remeshed: the .vtp files of the remeshed of all the tav and bav data
+    FEB_Files: The .feb and .xplt files of the Febio simulations
 Note: that a new directory is NewFiles is created by SaveFiles, a function
     that is utilisied by ResidualFunction_Time and RunLeastSquares
     
@@ -98,6 +99,7 @@ echoframetime.csv
     .csv file of the info for the different aortic root data sets, e.g. opening
     and closing frame, time per frame, number of frames
     
+
 RemeshAll.py
     Contains the function Remesh_All that creates a remeshed version of the 
     medial meshes from the pipeline.
