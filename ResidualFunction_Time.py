@@ -10,7 +10,7 @@ from Read_XPLTfuncs import GetFEB, GetMeshInfo, GetData
 from vtk2feb_Disp import VTK2Feb_Func
 from scipy.integrate import odeint
 from scipy.interpolate import interp1d
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 from math import sin, pi
 from math import exp as e
 
@@ -42,7 +42,7 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,CellIds,nCls,STJ_Id,VAJ_Id
     '''
     
     #Name of existing .xplt file that has been created 
-    xpltName = DataDir + '.xplt'
+    xpltName = './FEB_Files/' + DataDir + '.xplt'
     
     #Get Febio data tree, feb, and number of states, note the number of frames from Febio may not be the same of the original number of frames
     feb, _,nStates, _ = GetFEB(xpltName)
@@ -386,7 +386,7 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,C
     TimeInterp = np.linspace(0,1,nF)
     
     # Use xml tree to update .feb file
-    tree = et.parse(DataDir + '.feb')
+    tree = et.parse('./FEB_Files/' + DataDir + '.feb')
     # Count the number of choices
     nC = 0
     # Define pressure magnitude
@@ -549,11 +549,11 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,C
     tree.write(DataDir + '.feb',xml_declaration=True,encoding="ISO-8859-1")
     
     #Run updated .feb file to create new .xplt file
-    # os.system('/Applications/FEBioStudio/FEBioStudio.app/Contents/MacOS/febio3 -i '+ DataDir+'.feb >/dev/null 2>&1')
-    os.system('/Applications/FEBioStudio/FEBioStudio.app/Contents/MacOS/febio3 -i '+ DataDir+'.feb')
+    os.system('/Applications/FEBioStudio/FEBioStudio.app/Contents/MacOS/febio3 -i '+ './FEB_Files/' + DataDir+'.feb >/dev/null 2>&1')
+    # os.system('/Applications/FEBioStudio/FEBioStudio.app/Contents/MacOS/febio3 -i '+ './FEB_Files/' + DataDir+'.feb')
     
     # Define file of newly created .xplt file
-    XPLTfilename = DataDir + '.xplt'
+    XPLTfilename = './FEB_Files/' + DataDir + '.xplt'
     
     # Get data from .xplt 
     feb,file_size,nStates, mesh = GetFEB(XPLTfilename)
@@ -825,14 +825,14 @@ def RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,Profil
         B_Max = np.concatenate((B_Max,[1,100,100,100]))
     
     #Create .feb file of VTK remeshed case
-    VTK2Feb_Func(DataDir,ref,nF,nCls,Disp_Wall_STJ,Disp_Wall_VAJ,STJ_Id,VAJ_Id,Circ_Cls,ProfileChoice,ModelChoice,CF)
+    VTK2Feb_Func('./FEB_Files/' + DataDir,ref,nF,nCls,Disp_Wall_STJ,Disp_Wall_VAJ,STJ_Id,VAJ_Id,Circ_Cls,ProfileChoice,ModelChoice,CF)
     
     #Choose to run Least Squares optimisation or just run febio simulation
     if RunLSChoice:
         Out = least_squares(GetRes,C,bounds = [B_Min,B_Max],jac = '3-point', verbose=2,args=(DataDir,Pts,Disp_Wall,Norm,Circ,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,ProfileChoice,ResChoice,ModelChoice))
         Cs = Out.x
     else:
-        os.system('/Applications/FEBioStudio/FEBioStudio.app/Contents/MacOS/febio3 -i '+ DataDir+'.feb')
+        os.system('/Applications/FEBioStudio/FEBioStudio.app/Contents/MacOS/febio3 -i '+ './FEB_Files/' + DataDir+'.feb')
         Cs = C
      
     return Cs, Pts, Disp_Wall, Norm, CellIds, nCls, STJ_Id, VAJ_Id, FId, nF
@@ -870,12 +870,13 @@ if __name__=='__main__':
     FListOrdered, FId, refN = OrderList(flist, nF, ref)
     
     #Choose if data needs remeshed
+    #Choose if data needs remeshed
     PressureChoice = False           # Choose to vary pressure magnitude
     ModelParChoice = True            # Choose to vary modelparameters
     RunLSChoice    = False           # Choose to run least Squares (or default/initial guess)
-    ProfileChoice  = ['Windkess']    #['Triangle','Step','SmoothStep','Bio','Fourier','Fitted'] # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Bio', 'Fourier','Fitted'
+    ProfileChoice  = ['Bio']         #['Triangle','Step','SmoothStep','Bio','Fourier','Fitted'] # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Bio', 'Fourier','Fitted'
     ResChoice      = ['CellPlane']   # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
-    ModelChoice    = ['tiMR']        #,'Ogden']
+    ModelChoice    = ['MR']        #Choose model from 'MR','tiMR','Ogden' and 'Fung'
     
     #Create empty array for params
     Params = []
@@ -916,11 +917,29 @@ if __name__=='__main__':
                     
                 if MC:
                     if ModelChoice == 'MR':
-                        Model_C1 = Out[0+nC]
-                        Model_C2 = Out[1+nC]
-                        Model_k  = Out[2+nC]
+                        Model_density = Out[0+nC]
+                        Model_C1 = Out[1+nC]
+                        Model_C2 = Out[2+nC]
+                        Model_k  = Out[3+nC]
                         print('Model C1: ',Model_C1)
                         print('Model C2: ',Model_C2)
+                        print('Model k:  ',Model_k)
+                    if ModelChoice == 'tiMR':
+                        Model_density = Out[0+nC]
+                        Model_C1      = Out[1+nC]
+                        Model_C2      = Out[2+nC]
+                        Model_C3      = Out[3+nC]
+                        Model_C4      = Out[4+nC]
+                        Model_C5      = Out[5+nC]
+                        Model_lam_max = Out[6+nC]
+                        Model_k       = Out[7+nC]
+                        print('Model density: ',Model_density)
+                        print('Model C1: ',Model_C1)
+                        print('Model C2: ',Model_C2)
+                        print('Model C3: ',Model_C3)
+                        print('Model C4: ',Model_C4)
+                        print('Model C5: ',Model_C5)
+                        print('Model lam_max:  ',Model_lam_max)
                         print('Model k:  ',Model_k)
                     elif ModelChoice == 'Ogden':
                         Model_bulk = Out[0+nC]
@@ -1005,13 +1024,15 @@ if __name__=='__main__':
                     Residual_Mag[i] = np.sum(Residual_VectorMag[i])
                     
                 
-                # plt.figure(1)
-                # plt.plot(Time,np.multiply(Pressure,-Pressure_Mag),style)
-                # plt.xlabel('Time')
-                # plt.ylabel('Pressure')
-                # plt.figure(2)
-                # plt.plot(Time,Residual_Mag,style)
-                # plt.xlabel('Time')
-                # plt.ylabel('Pressure')
-    # plt.show()
+                plt.figure(1)
+                plt.plot(np.linspace(0,1,nF),Residual_Mag/nNodes,label = PC)
+                plt.xlabel('Time')
+                plt.ylabel('Relative Residual')
+                
+                if PC == 'Fitted':
+                    plt.figure(2)
+                    plt.plot(Time,np.multiply(Pressure,-Pressure_Mag),label = PC)
+                    plt.xlabel('Time')
+                    plt.ylabel('Pressure')
+    plt.show()
         

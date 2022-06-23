@@ -4,13 +4,10 @@ import os
 import csv
 import glob
 from xml.etree import ElementTree as et
-# from scipy.optimize import least_squares
-# from vtk.util.numpy_support import vtk_to_numpy
 from Read_XPLTfuncs import GetFEB, GetMeshInfo
 # from RemeshAll import Remesh_All
 # from vtk2feb_Disp import VTK2Feb_Func
 import matplotlib.pyplot as plt
-# from math import exp as e
 from ResidualFunction_Time import RunLS, SaveFiles, OrderList
 from RemeshAll import Remesh_All
 
@@ -72,10 +69,10 @@ for d in List_of_Subdirectories:
         #Choose if data needs remeshed
         PressureChoice = False           # Choose to vary pressure magnitude
         ModelParChoice = True            # Choose to vary modelparameters
-        RunLSChoice    = False            # Choose to run least Squares (or default/initial guess)
-        ProfileChoice  = ['Windkess']    #['Triangle','Step','SmoothStep','Bio','Fourier','Fitted'] # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Bio', 'Fourier','Fitted'
+        RunLSChoice    = True            # Choose to run least Squares (or default/initial guess)
+        ProfileChoice  = ['Bio']         #['Triangle','Step','SmoothStep','Bio','Fourier','Fitted'] # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Bio', 'Fourier','Fitted'
         ResChoice      = ['CellPlane']   # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
-        ModelChoice    = ['tiMR']        #Choose model from 'MR','tiMR','Ogden' and 'Fung'
+        ModelChoice    = ['MR']          #Choose model from 'MR','tiMR','Ogden' and 'Fung'
         
         
         for PC in ProfileChoice:
@@ -179,7 +176,7 @@ for d in List_of_Subdirectories:
                         
                     style = col +line
                     
-                    XPLTfilename = DataDir + '.xplt'
+                    XPLTfilename = './FEB_Files/' + DataDir + '.xplt'
                     feb,file_size,nStates, mesh = GetFEB(XPLTfilename)
                     nNodes, nElems, nVar, StateTimes, VarNames, VarType = GetMeshInfo(feb)
             
@@ -206,14 +203,17 @@ for d in List_of_Subdirectories:
                             Residual_VectorMag[i,j] = np.sqrt(np.sum(np.power(Residual[i,j],2)))
                         Residual_Mag[i] = np.sum(Residual_VectorMag[i])
                     
+                        
                     plt.figure(1)
-                    plt.plot(Time,np.multiply(Pressure,-Pressure_Mag),label = PC)
-                    plt.xlabel('Time')
-                    plt.ylabel('Pressure')
-                    plt.figure(2)
                     plt.plot(np.linspace(0,1,nF),Residual_Mag/nNodes,label = PC)
                     plt.xlabel('Time')
                     plt.ylabel('Relative Residual')
+                    
+                    if PC == 'Fitted':
+                        plt.figure(2)
+                        plt.plot(Time,np.multiply(Pressure,-Pressure_Mag),label = PC)
+                        plt.xlabel('Time')
+                        plt.ylabel('Pressure')
                 
 plt.show()
         
