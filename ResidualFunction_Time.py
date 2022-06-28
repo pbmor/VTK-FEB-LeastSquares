@@ -285,6 +285,8 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,CellIds,nCls,STJ_Id,VAJ_Id
             Conditions += 'Ogd_'
         elif ModelChoice == 'Fung':
             Conditions += 'Fung_'
+        elif ModelChoice == 'HGO_unc':
+            Conditions += 'HGO_'
             
         if RunLSChoice:
             Conditions += 'RunLST_'
@@ -295,7 +297,8 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,CellIds,nCls,STJ_Id,VAJ_Id
         Conditions += ProfileChoice +'_'+ ResChoice
             
         
-        fname = './NewFiles/'+ DataDir+'/'+Conditions+'/'+xpltName[0:5] + '_' + str(fid+1)+'.vtk'
+        # fname = './NewFiles/'+ DataDir+'/'+Conditions+'/'+xpltName[0:5] + '_' + str(fid+1)+'.vtk'
+        fname = './NewFiles/'+ DataDir+'/'+Conditions+'/'+DataDir + '_' + str(fid+1)+'.vtk'
         directory = os.path.dirname(fname)
         if not os.path.exists(directory):
             os.makedirs(directory)
@@ -442,6 +445,16 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,C
             tree.find('Material').find('material').find('c').text = str(C[9+nC])
             tree.find('Material').find('material').find('k').text = str(C[10+nC])
             nC +=11
+        elif ModelChoice == 'HGO_unc':
+            TreeBranches = tree.find('Material').findall('material')
+            for i in range(nCls):
+                TreeBranches[i].find('c').text = str(C[0+nC])
+                TreeBranches[i].find('k1').text = str(C[1+nC])
+                TreeBranches[i].find('k2').text = str(C[2+nC])
+                TreeBranches[i].find('kappa').text = str(C[3+nC])
+                TreeBranches[i].find('gamma').text = str(C[4+nC])
+                TreeBranches[i].find('k').text = str(C[5+nC])
+            nC +=6
      
         
     # Define shape and value of pressure profile defined between 0 and 1. The pressure magnitude is defined separately 
@@ -744,12 +757,16 @@ def RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,Profil
         Norm[X]      = vtk_to_numpy(polydata.GetPointData().GetArray('Normal'))
         
         Circ_Cls = np.zeros((nCls,3))
+        Long_Cls = np.zeros((nCls,3))
         
         for i in range(nCls):
             c = polydata.GetCell(i)
             Circ_Cls[i,0] = (Circ[0,c.GetPointId(0),0]+Circ[0,c.GetPointId(1),0]+Circ[0,c.GetPointId(2),0]+Circ[0,c.GetPointId(3),0])/4
             Circ_Cls[i,1] = (Circ[0,c.GetPointId(0),1]+Circ[0,c.GetPointId(1),1]+Circ[0,c.GetPointId(2),1]+Circ[0,c.GetPointId(3),1])/4
             Circ_Cls[i,2] = (Circ[0,c.GetPointId(0),2]+Circ[0,c.GetPointId(1),2]+Circ[0,c.GetPointId(2),2]+Circ[0,c.GetPointId(3),2])/4
+            Long_Cls[i,0] = (Long[0,c.GetPointId(0),0]+Circ[0,c.GetPointId(1),0]+Long[0,c.GetPointId(2),0]+Long[0,c.GetPointId(3),0])/4
+            Long_Cls[i,1] = (Long[0,c.GetPointId(0),1]+Circ[0,c.GetPointId(1),1]+Long[0,c.GetPointId(2),1]+Long[0,c.GetPointId(3),1])/4
+            Long_Cls[i,2] = (Long[0,c.GetPointId(0),2]+Circ[0,c.GetPointId(1),2]+Long[0,c.GetPointId(2),2]+Long[0,c.GetPointId(3),2])/4
             
         nPts = polydata.GetNumberOfPoints()
         j=0
@@ -789,6 +806,10 @@ def RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,Profil
             C = np.concatenate((C,[1,2,1.5,0.5,0.1,1,1.2,2,1.5,0.5,0.1]))
             B_Min = np.concatenate((B_Min,[0,0,0,0,0,0,0,0,0,0,0]))
             B_Max = np.concatenate((B_Max,[10,10,10,10,10,10,10,10,10,10,10]))
+        elif ModelChoice == 'HGO_unc':
+            C = np.concatenate((C,[1,2,1.5,0.2,0.1,1]))
+            B_Min = np.concatenate((B_Min,[0,0,0,0,0,0]))
+            B_Max = np.concatenate((B_Max,[10,10,10,0.3333,10,10]))
     else:
         C = np.concatenate((C,[]))
         B_Min = np.concatenate((B_Min,[]))
@@ -825,7 +846,7 @@ def RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,Profil
         B_Max = np.concatenate((B_Max,[1,100,100,100]))
     
     #Create .feb file of VTK remeshed case
-    VTK2Feb_Func(DataDir,ref,nF,nCls,Disp_Wall_STJ,Disp_Wall_VAJ,STJ_Id,VAJ_Id,Circ_Cls,ProfileChoice,ModelChoice,CF)
+    VTK2Feb_Func(DataDir,ref,nF,nCls,Disp_Wall_STJ,Disp_Wall_VAJ,STJ_Id,VAJ_Id,Circ_Cls,Long_Cls,ProfileChoice,ModelChoice,CF)
     
     #Choose to run Least Squares optimisation or just run febio simulation
     if RunLSChoice:
@@ -872,10 +893,10 @@ if __name__=='__main__':
     #Choose if data needs remeshed
     PressureChoice = False           # Choose to vary pressure magnitude
     ModelParChoice = True            # Choose to vary modelparameters
-    RunLSChoice    = True            # Choose to run least Squares (or default/initial guess)
+    RunLSChoice    = False            # Choose to run least Squares (or default/initial guess)
     ProfileChoice  = ['Windkess']    # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Bio', 'Fourier','Fitted'
     ResChoice      = ['CellPlane']   # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
-    ModelChoice    = ['MR']          # Choose model from 'MR','tiMR','Ogden' and 'Fung'
+    ModelChoice    = ['HGO_unc']          # Choose model from 'MR','tiMR','Ogden' and 'Fung',  'HGO_unc'
     
     #Create empty array for params
     Params = []
