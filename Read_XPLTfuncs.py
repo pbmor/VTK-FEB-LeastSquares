@@ -361,8 +361,6 @@ def GetData(feb,Var,States,nVar):
     for i in range(States):
         for j in range(nVar):
             if VarDataObj[0][j] ==Var:
-                print(i,j,nVar)
-                print(np.shape(VarDataObj[j+3]))
                 VarData.append(VarDataObj[j+3][i][0])
     return VarData
 
@@ -534,9 +532,9 @@ def GetFEB(filename):
     
     feb.read_file(fid)
     
-    for pre,fill,node in RenderTree(feb):
-        treestr = u"%s%s" %(pre,node.name)
-        print(treestr.ljust(8),node.name,node.read)
+    # for pre,fill,node in RenderTree(feb):
+    #     treestr = u"%s%s" %(pre,node.name)
+    #     print(treestr.ljust(8),node.name,node.read)
         
     return feb, file_size, nstates, mesh
 
