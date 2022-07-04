@@ -7,7 +7,7 @@ from math import sin, pi
 from scipy.integrate import odeint
 from scipy.interpolate import interp1d
 
-def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VAJ_Id,Circ,ProfileChoice,ModelChoice,CF):
+def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VAJ_Id,Circ,Long,ProfileChoice,ModelChoice,CF):
     
     TimeInterp = np.linspace(0,1,nF)
     
@@ -109,7 +109,7 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
     in_pd = pdi.GetPointData()
     X = vtk_to_numpy(pts.GetData())
     
-    NewFebName = DataDir+'.feb'
+    NewFebName = './FEB_Files/' + DataDir+'.feb'
     f=open(NewFebName,'w')
     
     #Generic starting information
@@ -158,24 +158,9 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
         f.write('\t\t\t<density>0.0</density>\n')
         f.write('\t\t\t<c1>10</c1>\n')
         f.write('\t\t\t<c2>10</c2>\n')
-        f.write('\t\t\t<k>10.0</k>\n')
+        f.write('\t\t\t<k>10</k>\n')
         f.write('\t\t</material>\n') 
     elif ModelChoice =='tiMR':
-        # f.write('\t\t<material id="1" name="Material1" type="trans iso Mooney-Rivlin">\n') 
-        # f.write('\t\t\t<density>0</density>\n') 
-        # f.write('\t\t\t<c1>10.0</c1>\n') 
-        # f.write('\t\t\t<c2>10.0</c2>\n') 
-        # f.write('\t\t\t<c3>10.0</c3>\n') 
-        # f.write('\t\t\t<c4>10.0</c4>\n') 
-        # f.write('\t\t\t<c5>10.0</c5>\n') 
-        # f.write('\t\t\t<lam_max>10.0</lam_max>\n') 
-        # f.write('\t\t\t<k>10.0</k>\n') 
-        # f.write('\t\t\t<fiber type="cylindrical">\n')
-        # f.write('\t\t\t\t<center>46,42,25</center>\n')
-        # f.write('\t\t\t\t<axis>1,0,0</axis>\n')
-        # f.write('\t\t\t\t<vector>1,0,0</vector>\n')
-        # f.write('\t\t\t</fiber>\n') 
-        # f.write('\t\t</material>\n') 
         for i in range(nCells):
             f.write(f'\t\t<material id="{i+1}" name="Material{i+1}" type="2D trans iso Mooney-Rivlin">\n') 
             f.write('\t\t\t<density>10.0</density>\n') 
@@ -188,6 +173,18 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
             f.write('\t\t\t<lam_max>1.0</lam_max>\n') 
             f.write(f'\t\t\t<fiber type="vector">{Circ[i,0]},{Circ[i,1]},{Circ[i,2]}</fiber>\n') 
             f.write('\t\t</material>\n') 
+    elif ModelChoice =='tiMR_uni':
+        f.write('\t\t<material id="1" name="Material1" type="2D trans iso Mooney-Rivlin">\n') 
+        f.write('\t\t\t<density>10.0</density>\n') 
+        f.write('\t\t\t<c1>14.0</c1>\n') 
+        f.write('\t\t\t<c2>0.0</c2>\n') 
+        f.write('\t\t\t<c3>2.0</c3>\n') 
+        f.write('\t\t\t<c4>60.0</c4>\n') 
+        f.write('\t\t\t<c5>600.0</c5>\n') 
+        f.write('\t\t\t<k>100.0</k>\n') 
+        f.write('\t\t\t<lam_max>1.0</lam_max>\n') 
+        f.write('\t\t\t<fiber type="vector">1,0,0</fiber>\n') 
+        f.write('\t\t</material>\n') 
     elif ModelChoice =='Ogden':
         f.write('\t\t<material id="1" name="Material1" type="Ogden">\n')
         f.write('\t\t\t<density>10</density>\n')
@@ -220,6 +217,21 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
         f.write('\t\t\t<c>1</c>\n')
         f.write('\t\t\t<k>1</k>\n')
         f.write('\t\t</material>\n')
+    elif ModelChoice =='HGO_unc':
+        for i in range(nCells):
+            f.write(f'\t\t<material id="{i+1}" name="Material{i+1}" type="HGO unconstrained">\n')
+            f.write('\t\t\t<density>1</density>\n')
+            f.write('\t\t\t<c>10</c>\n')
+            f.write('\t\t\t<k1>10</k1>\n')
+            f.write('\t\t\t<k2>10</k2>\n')
+            f.write('\t\t\t<kappa>0.1</kappa>\n')
+            f.write('\t\t\t<gamma>10</gamma>\n')
+            f.write('\t\t\t<k>10</k>\n')
+            f.write('\t\t\t<mat_axis type="vector">\n')
+            f.write(f'\t\t\t\t<a>{Circ[i,0]},{Circ[i,1]},{Circ[i,2]}</a>\n')
+            f.write(f'\t\t\t\t<d>{Long[i,0]},{Long[i,1]},{Long[i,2]}</d>\n')
+            f.write('\t\t\t</mat_axis>\n')
+            f.write('\t\t</material>\n')
     f.write('\t</Material>\n')
     
     #Mesh and geometry
@@ -230,7 +242,7 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
     f.write('\t\t</Nodes>\n')
     
     
-    if ModelChoice == 'tiMR':
+    if ModelChoice == 'tiMR' or ModelChoice == 'HGO_unc':
         for i in range(nCells):
             f.write(f'\t\t<Elements type="quad4" name="Part{i+1}">\n')
             c = pdi.GetCell(i)
@@ -290,7 +302,7 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
     
     #Mesh domain assigns material to the surface
     f.write('\t<MeshDomains>\n')
-    if ModelChoice == 'tiMR':
+    if ModelChoice == 'tiMR' or ModelChoice == 'HGO_unc':
         for i  in range(nCells):
             f.write(f'\t\t<ShellDomain name="Part{i+1}" mat="Material{i+1}">\n')
             f.write('\t\t\t<shell_normal_nodal>1</shell_normal_nodal>\n')
@@ -304,7 +316,7 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
     #Mesh data where we assign thickness (and possibly fiber directions)
     thick = vtk_to_numpy(in_pd.GetArray('Thickness'))
     f.write('\t<MeshData>\n')
-    if ModelChoice == 'tiMR':
+    if ModelChoice == 'tiMR' or ModelChoice == 'HGO_unc':
         for i in range(nCells):
             f.write(f'\t\t<ElementData var="shell thickness" elem_set="Part{i+1}">\n')
             c = pdi.GetCell(i)
@@ -315,18 +327,17 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
             f.write('\t\t</ElementData>\n')  
     else:
         f.write('\t\t<ElementData var="shell thickness" elem_set="Part1">\n')
-        for i in range(0,num_cells):
+        for i in range(num_cells):
             c = pdi.GetCell(i)
-            f.write(f'\t\t\t<e lid="{i+1}">{thick[c.GetPointId(0)]}')
+            f.write(f'\t\t\t<elem lid="{i+1}">{thick[c.GetPointId(0)]}')
             for j in range(1,4):
                 f.write(f',{thick[c.GetPointId(j)]}')
-            f.write('</e>\n')
+            f.write('</elem>\n')
         f.write('\t\t</ElementData>\n') 
-    # f.write('\t\t<ElementData var="fiber" elem_set="Part1">\n')
-    # for i in range(0,num_cells):
-    #     c = pdi.GetCell(i)
-    #     f.write(f'\t\t\t<e lid="{i+1}">{i**2},1.0,1.0</e>\n')
-    # f.write('\t\t</ElementData>\n')   
+        # f.write('\t\t<ElementData var="fiber" elem_set="Part1">\n')
+        # for i in range(num_cells):
+        #     f.write(f'\t\t\t<elem lid="{i+1}">{i},{np.random.normal(0,1)},{np.random.normal(0,1)}</elem>\n')
+        # f.write('\t\t</ElementData>\n')   
     f.write('\t</MeshData>\n')
     
     #Boundary conditions
@@ -341,14 +352,14 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
         for i, Id in enumerate(STJ_Id):
             f.write('\t\t<bc name="STJ_'+str(Id+1)+'" type="prescribe" node_set="STJ_'+str(Id+1)+'">\n')
             f.write('\t\t\t<dof>'+j+'</dof>\n')
-            f.write('\t\t\t<scale lc="'+str(1+i + len(STJ_Id)*k)+'">1</scale>\n')
+            f.write('\t\t\t<scale lc="'+str(1+1+i + len(STJ_Id)*k)+'">1</scale>\n')
             f.write('\t\t\t<relative>0</relative>\n')
             f.write('\t\t</bc>\n')
     for k, j in enumerate(['x','y','z']):
         for i, Id in enumerate(VAJ_Id):
             f.write('\t\t<bc name="VAJ_'+str(Id+1)+'" type="prescribe" node_set="VAJ_'+str(Id+1)+'">\n')
             f.write('\t\t\t<dof>'+j+'</dof>\n')
-            f.write('\t\t\t<scale lc="'+str(1+3*len(STJ_Id)+i + len(VAJ_Id)*k)+'">1</scale>\n')
+            f.write('\t\t\t<scale lc="'+str(1+1+3*len(STJ_Id)+i + len(VAJ_Id)*k)+'">1</scale>\n')
             f.write('\t\t\t<relative>0</relative>\n')
             f.write('\t\t</bc>\n')
     f.write('\t</Boundary>\n')
