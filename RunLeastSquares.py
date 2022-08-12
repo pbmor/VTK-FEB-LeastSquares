@@ -25,7 +25,6 @@ for d in List_of_Subdirectories:
     if flist ==[]:
         OriginalFiles = sorted(glob.glob('../RunVTK/Strains/medial_meshes/'+DataDir+'/medial meshes - propagated from reference/with point data - recon from propagated boundary meshes/*'))
         for OF in OriginalFiles:
-            print(OF)
             if OF[-4:]==".vtp"or OF[-4:]==".vtk":
                 Remesh_All(DataDir,OF)
                 
@@ -65,99 +64,115 @@ for d in List_of_Subdirectories:
                 
         #Order list to put reference frame first
         FListOrdered, FId, refN = OrderList(flist, nF, ref)
-        
+    
         #Choose if data needs remeshed
         PressureChoice = False           # Choose to vary pressure magnitude
-        ModelParChoice = True            # Choose to vary modelparameters
-        RunLSChoice    = True            # Choose to run least Squares (or default/initial guess)
-        ProfileChoice  = ['Bio']         #['Triangle','Step','SmoothStep','Bio','Fourier','Fitted'] # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Bio', 'Fourier','Fitted'
+        ModelParChoice = True            # Choose to vary model parameters
+        RunLSChoice    = False           # Choose to run least Squares (or default/initial guess)
+        FibChoice      = True            # Choose to vary fiber direction, as an angle from the circumferential direction
+        ProfileChoice  = ['Windkess']    # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Bio', 'Fourier','Fitted'
         ResChoice      = ['CellPlane']   # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
-        ModelChoice    = ['MR']          #Choose model from 'MR','tiMR','Ogden' and 'Fung'
+        ModelChoice    = ['tiMR']         # Choose model from 'MR','tiMR','Ogden' and 'Fung',  'HGO'
         
         
         for PC in ProfileChoice:
             for MC in ModelChoice:
                 for RC in ResChoice:
                     #Run least squares script
-                    Out, Pts, Disp_Wall, Norm, CellIds, nCls, STJ_Id, VAJ_Id, FId, nF = RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,PC,RunLSChoice,RC,MC)
-                    
-                    RemeshedFiles = glob.glob('./Remeshed/'+DataDir+'/*')
-                    
-                    for Fname in list(RemeshedFiles):
-                        X = Fname.replace(common,'')
-                        X = X.replace('.vtk','')
-                        X = np.fromstring(X, dtype=int, sep=' ')
-                        X=X[0]
-                        if X==refN:
-                            RemeshedFile=Fname
-                    
+                    Out, Pts, Disp_Wall, Norm, CellIds, nCls, STJ_Id, VAJ_Id, FId, nF = RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,PC,RunLSChoice,RC,MC,FibChoice)
+                
+                    # Save the returned parameter array
                     Params.append([DataDir,Out])
-                    nStates,Residual = SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,PC,RunLSChoice,RC,MC,Out)
+                    
+                    # Save new files
+                    nStates,Residual = SaveFiles(DataDir,ref,Pts,Disp_Wall,Norm,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,PC,RunLSChoice,RC,MC,FibChoice,Out)
                     if nF != nStates:
                         print('The number of frames in original dataset: ', nF)
                         print('The number of frames in simulated dataset: ', nStates)
                     else:
                         print('The number of frames: ', nF)
                         
-                    nNodes = len(Residual[0])
-                    print('The number of nodes: ',nNodes)
-                    nC = 0
-                    if PressureChoice:
-                        Pressure_Mag = Out[0]
-                        print('Pressure Magnitude: ',Pressure_Mag)
-                        nC +=1
-                    else:
-                        print('Pressure Magnitude: ',-0.005332)
-                        
-                    if ModelParChoice:
-                        if MC == 'MR':
-                            Model_C1 = Out[0+nC]
-                            Model_C2 = Out[1+nC]
-                            Model_k  = Out[2+nC]
-                            print('Model C1: ',Model_C1)
-                            print('Model C2: ',Model_C2)
-                            print('Model k:  ',Model_k)
-                        elif MC == 'Ogden':
-                            Model_k = Out[0+nC]
-                            Model_c1   = Out[1+nC]
-                            Model_c2   = Out[2+nC]
-                            Model_c3   = Out[3+nC]
-                            Model_c4   = Out[4+nC]
-                            Model_c5   = Out[5+nC]
-                            Model_c6   = Out[6+nC]
-                            Model_m1   = Out[7+nC]
-                            Model_m2   = Out[8+nC]
-                            Model_m3   = Out[9+nC]
-                            Model_m4   = Out[10+nC]
-                            Model_m5   = Out[11+nC]
-                            Model_m6   = Out[12+nC]
-                            print('Model k: ',Model_k)
-                            print('Model C1: ',Model_c1)
-                            print('Model C2: ',Model_c2)
-                            print('Model C3: ',Model_c3)
-                            print('Model C4: ',Model_c4)
-                            print('Model C5: ',Model_c5)
-                            print('Model C6: ',Model_c6)
-                            print('Model m1: ',Model_m1)
-                            print('Model m2: ',Model_m2)
-                            print('Model m3: ',Model_m3)
-                            print('Model m4: ',Model_m4)
-                            print('Model m5: ',Model_m5)
-                            print('Model m6: ',Model_m6)
-                        nC+=3
-                    else:
-                        print('Model C1: ',1)
-                        print('Model C2: ',0)
-                        print('Model k: ',10)
-               
+                # Start counting parameters, based on model choices
+                nC = 0
+                if PressureChoice:
+                    Pressure_Mag = Out[0]
+                    print('Pressure Magnitude: ',Pressure_Mag)
+                    nC +=1
+                else:
+                    print('Pressure Magnitude is Default')
+                    
+                if ModelParChoice:
                     if MC == 'MR':
-                        line = ''
-                    elif MC == 'tiMR':
-                        line = ''
+                        print('Model density: ',Out[0+nC])
+                        print('Model C1: ',Out[1+nC])
+                        print('Model C2: ',Out[2+nC])
+                        print('Model k:  ',Out[3+nC])
+                        nC +=4
+                    if MC == 'tiMR':
+                        print('Model density: ',Out[0+nC])
+                        print('Model C1: ',Out[1+nC])
+                        print('Model C2: ',Out[2+nC])
+                        print('Model C3: ',Out[3+nC])
+                        print('Model C4: ',Out[4+nC])
+                        print('Model C5: ',Out[5+nC])
+                        print('Model k:  ',Out[6+nC])
+                        print('Model lam_max:  ',Out[7+nC])
+                        nC +=8
                     elif MC == 'Ogden':
-                        line = '--'    
+                        print('Model density',Out[0+nC])
+                        print('Model k',Out[1+nC])
+                        print('Model c1',Out[2+nC])
+                        print('Model c2',Out[3+nC])
+                        print('Model c3',Out[4+nC])
+                        print('Model c4',Out[5+nC])
+                        print('Model c5',Out[6+nC])
+                        print('Model c6',Out[7+nC])
+                        print('Model m1',Out[8+nC])
+                        print('Model m2',Out[9+nC])
+                        print('Model m3',Out[10+nC])
+                        print('Model m4',Out[11+nC])
+                        print('Model m5',Out[12+nC])
+                        print('Model m6',Out[13+nC])
+                        nC += 14 
                     elif MC == 'Fung':
-                        line = ':'     
+                        print('Model density: ',Out[0+nC])
+                        print('Model E1: ',Out[1+nC])
+                        print('Model E2: ',Out[2+nC])
+                        print('Model E3: ',Out[3+nC])
+                        print('Model G12: ',Out[4+nC])
+                        print('Model G23: ',Out[5+nC])
+                        print('Model G31: ',Out[6+nC])
+                        print('Model v12: ',Out[7+nC])
+                        print('Model v23: ',Out[8+nC])
+                        print('Model v31: ',Out[9+nC])
+                        print('Model c:  ',Out[10+nC])
+                        print('Model k:  ',Out[11+nC])
+                        nC +=12
+                    elif MC == 'HGO':
+                        print('Model c: ',Out[0+nC])
+                        print('Model k1: ',Out[1+nC])
+                        print('Model k2: ',Out[2+nC])
+                        print('Model gamma: ',Out[3+nC])
+                        print('Model kappa: ',Out[4+nC])
+                        print('Model k:  ',Out[5+nC])
+                        nC+=6
+                else:
+                    print('Model parameters not optimised')
+                
+                if FibChoice:
+                    print('Fiber angle is:  ',Out[0+nC])
+                    nC += 1
+                    
+                    # if MC == 'MR':
+                    #     line = '-'
+                    # elif MC == 'tiMR':
+                    #     line = '-.'
+                    # elif MC == 'Ogden':
+                    #     line = '--'    
+                    # elif MC == 'Fung':
+                    #     line = ':'     
+                    # elif MC == 'HGO':
+                    #     line = ':'     
                     
                     if PC == 'Triangle':
                         col = 'k'
@@ -174,10 +189,11 @@ for d in List_of_Subdirectories:
                     elif PC == 'SetWindkess':
                         col = 'c'
                         
-                    style = col +line
+                    # style = col +line
+                    style = col
                     
                     XPLTfilename = './FEB_Files/' + DataDir + '.xplt'
-                    feb,file_size,nStates, mesh = GetFEB(XPLTfilename)
+                    feb,file_size,nStates, mesh = GetFEB(XPLTfilename,False)
                     nNodes, nElems, nVar, StateTimes, VarNames, VarType = GetMeshInfo(feb)
             
                     TimeData = (np.genfromtxt('TimeProfile.csv', delimiter=','))
@@ -188,7 +204,7 @@ for d in List_of_Subdirectories:
                     
                     Time = np.zeros(nF)
                     Pressure = np.zeros(nF)
-                    tree = et.parse(DataDir + '.feb')
+                    tree = et.parse('./FEB_Files/' + DataDir + '.feb')
                     Pressure_Mag = float(tree.find('Loads').find('surface_load').find('pressure').text)
                     for idx, Pt in enumerate(tree.find('LoadData').find('load_controller').find('points').findall("point")):
                         for i in range(len(Pt.text)):

@@ -3,11 +3,11 @@ import numpy as np
 from numpy import genfromtxt
 from vtk.util.numpy_support import vtk_to_numpy
 from math import exp as e
-from math import sin, pi
+from math import cos, sin, pi
 from scipy.integrate import odeint
 from scipy.interpolate import interp1d
 
-def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VAJ_Id,Circ,Long,ProfileChoice,ModelChoice,CF):
+def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VAJ_Id,Circ,Long,ProfileChoice,ModelChoice,FiberChoice,CF):
     
     TimeInterp = np.linspace(0,1,nF)
     
@@ -57,7 +57,6 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
         for ti in t:
             if ti%1>0 and ti%1<=CFt:
                 qi.append(qi_mag*sin(pi*(ti%1)/CFt))
-                #qi.append(qi_mag)
             else:
                 qi.append(0)
         qi = np.array(qi)
@@ -69,7 +68,7 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
         Pressure = Rp*qi+Rd*qo
         PressureInterp = np.interp(np.linspace(99,100,nF),t[last],Pressure[last])
         PressureInterpStan = np.subtract(PressureInterp,PressureInterp[0])
-        # PressureInterpStan = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
+        
     elif ProfileChoice[0:3] == 'Set':
         if ProfileChoice[3:] == 'Windkess':
             qi_mag = 1.08833313e+01
@@ -94,8 +93,6 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
             Pressure = Rp*qi+Rd*qo
             PressureInterp = np.interp(np.linspace(99,100,nF),t[last],Pressure[last])
             PressureInterpStan = np.subtract(PressureInterp,PressureInterp[0])
-            # PressureInterpStan = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
-        
     
     reader = vtk.vtkPolyDataReader()
     reader.SetFileName(Fname)
@@ -171,20 +168,17 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
             f.write('\t\t\t<c5>600.0</c5>\n') 
             f.write('\t\t\t<k>100.0</k>\n') 
             f.write('\t\t\t<lam_max>1.0</lam_max>\n') 
-            f.write(f'\t\t\t<fiber type="vector">{Circ[i,0]},{Circ[i,1]},{Circ[i,2]}</fiber>\n') 
+            if FiberChoice:
+                theta = 0
+                C_prime = np.cross(np.cross(Circ[i],Long[i]),Circ[i])
+                New = np.dot(cos(theta),Circ[i]) + np.dot(sin(theta),C_prime)
+                f.write(f'\t\t\t<fiber type="vector">{New[0]},{New[1]},{New[2]}</fiber>\n') 
+            else:
+                Fib_X = Circ[i,0]
+                Fib_Y = Circ[i,1]
+                Fib_Z = Circ[i,2]
+                f.write(f'\t\t\t<fiber type="vector">{Fib_X},{Fib_Y},{Fib_Z}</fiber>\n') 
             f.write('\t\t</material>\n') 
-    elif ModelChoice =='tiMR_uni':
-        f.write('\t\t<material id="1" name="Material1" type="2D trans iso Mooney-Rivlin">\n') 
-        f.write('\t\t\t<density>10.0</density>\n') 
-        f.write('\t\t\t<c1>14.0</c1>\n') 
-        f.write('\t\t\t<c2>0.0</c2>\n') 
-        f.write('\t\t\t<c3>2.0</c3>\n') 
-        f.write('\t\t\t<c4>60.0</c4>\n') 
-        f.write('\t\t\t<c5>600.0</c5>\n') 
-        f.write('\t\t\t<k>100.0</k>\n') 
-        f.write('\t\t\t<lam_max>1.0</lam_max>\n') 
-        f.write('\t\t\t<fiber type="vector">1,0,0</fiber>\n') 
-        f.write('\t\t</material>\n') 
     elif ModelChoice =='Ogden':
         f.write('\t\t<material id="1" name="Material1" type="Ogden">\n')
         f.write('\t\t\t<density>10</density>\n')
@@ -217,23 +211,17 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
         f.write('\t\t\t<c>1</c>\n')
         f.write('\t\t\t<k>1</k>\n')
         f.write('\t\t</material>\n')
-    elif ModelChoice =='HGO_unc':
-        for i in range(nCells):
-            f.write(f'\t\t<material id="{i+1}" name="Material{i+1}" type="HGO unconstrained">\n')
-            f.write('\t\t\t<density>1</density>\n')
-            f.write('\t\t\t<c>10</c>\n')
-            f.write('\t\t\t<k1>10</k1>\n')
-            f.write('\t\t\t<k2>10</k2>\n')
-            f.write('\t\t\t<kappa>0.1</kappa>\n')
-            f.write('\t\t\t<gamma>10</gamma>\n')
-            f.write('\t\t\t<k>10</k>\n')
-            f.write('\t\t\t<mat_axis type="vector">\n')
-            f.write(f'\t\t\t\t<a>{Circ[i,0]},{Circ[i,1]},{Circ[i,2]}</a>\n')
-            f.write(f'\t\t\t\t<d>{Long[i,0]},{Long[i,1]},{Long[i,2]}</d>\n')
-            f.write('\t\t\t</mat_axis>\n')
-            f.write('\t\t</material>\n')
+    elif ModelChoice == 'HGO':
+        f.write('\t\t<material id="1" name="Material1" type="Holzapfel-Gasser-Ogden">\n')
+        f.write('\t\t\t<c>1.0</c>\n')
+        f.write('\t\t\t<k1>1.0</k1>\n')
+        f.write('\t\t\t<k2>1.0</k2>\n')
+        f.write('\t\t\t<gamma>1.0</gamma>\n')
+        f.write('\t\t\t<kappa>0.10</kappa>\n')
+        f.write('\t\t\t<k>100000.0</k>\n')
+        f.write('\t\t</material>\n')
+                
     f.write('\t</Material>\n')
-    
     #Mesh and geometry
     f.write('\t<Mesh>\n')
     f.write('\t\t<Nodes name="Object01">\n')
@@ -334,10 +322,14 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
                 f.write(f',{thick[c.GetPointId(j)]}')
             f.write('</elem>\n')
         f.write('\t\t</ElementData>\n') 
-        # f.write('\t\t<ElementData var="fiber" elem_set="Part1">\n')
-        # for i in range(num_cells):
-        #     f.write(f'\t\t\t<elem lid="{i+1}">{i},{np.random.normal(0,1)},{np.random.normal(0,1)}</elem>\n')
-        # f.write('\t\t</ElementData>\n')   
+        if ModelChoice == 'HGO':
+            f.write('\t\t<ElementData var="mat_axis" elem_set="Part1">\n')
+            for i in range(num_cells):
+                f.write(f'\t\t\t<elem lid="{i+1}">\n')
+                f.write(f'\t\t\t\t<a>{Circ[i,0]},{Circ[i,1]},{Circ[i,2]}</a>\n')
+                f.write(f'\t\t\t\t<d>{-Long[i,0]},{-Long[i,1]},{-Long[i,2]}</d>\n')
+                f.write('\t\t\t</elem>\n')
+            f.write('\t\t</ElementData>\n')   
     f.write('\t</MeshData>\n')
     
     #Boundary conditions

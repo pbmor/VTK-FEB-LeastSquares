@@ -11,10 +11,10 @@ from vtk2feb_Disp import VTK2Feb_Func
 from scipy.integrate import odeint
 from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
-from math import sin, pi
+from math import cos, sin, pi
 from math import exp as e
 
-def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice,Out):
+def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice,FibChoice,Out):
     '''
     Read xplt file and save to remeshed vtk file and save as a new vtk file.
     
@@ -45,7 +45,7 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,CellIds,nCls,STJ_Id,VAJ_Id
     xpltName = './FEB_Files/' + DataDir + '.xplt'
     
     #Get Febio data tree, feb, and number of states, note the number of frames from Febio may not be the same of the original number of frames
-    feb, _,nStates, _ = GetFEB(xpltName)
+    feb, _,nStates, _ = GetFEB(xpltName,False)
     
     #Get number of points , nNodes, and number of elements, nElems, number of variables from febio calc, nVar, the times of each frame, StateTimes, get names of variables and types, VarNames and VarTypes 
     nNodes, nElems, nVar, StateTimes, VarNames, VarType = GetMeshInfo(feb)
@@ -71,12 +71,12 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,CellIds,nCls,STJ_Id,VAJ_Id
         
     for i in range(nStates): 
         for j in range(nElems):
-            Stress_X[i,j]  = stress[i][j*6+1]
-            Stress_Y[i,j]  = stress[i][j*6+2]
-            Stress_Z[i,j]  = stress[i][j*6+3]
-            Stress_XY[i,j] = stress[i][j*6+4]
-            Stress_YZ[i,j] = stress[i][j*6+5]
-            Stress_XZ[i,j] = stress[i][j*6+6]
+            Stress_X[i,j]  = stress[i][j*6]
+            Stress_Y[i,j]  = stress[i][j*6+1]
+            Stress_Z[i,j]  = stress[i][j*6+2]
+            Stress_XY[i,j] = stress[i][j*6+3]
+            Stress_YZ[i,j] = stress[i][j*6+4]
+            Stress_XZ[i,j] = stress[i][j*6+5]
             
     if nF !=nStates:
         #Warning to to highlight difference in original frames and febio frames
@@ -196,19 +196,6 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,CellIds,nCls,STJ_Id,VAJ_Id
                     Intersect = np.add(np.add(w,np.multiply(si,PtNorm)),planePt)
                     
                     Residual[i,j] =  np.linalg.norm(np.subtract(Pt,Intersect))
-                # if Residual[i,j] >1000:
-                #     ax = plt.axes(projection='3d')
-                #     # ax.scatter3D(VTK_Pts[i,:,0],VTK_Pts[i,:,1],VTK_Pts[i,:,2],'xk')
-                #     # if i ==5 and j==48:
-                #     for l in range(len(CellDistId[j])):
-                #         ax.scatter3D(VTK_Pts[i,CellDistId[j][l].astype(int),0],VTK_Pts[i,CellDistId[j][l].astype(int),1],VTK_Pts[i,CellDistId[j][l].astype(int),2], c='r', marker='x')
-                #         ax.scatter3D(FEB_Pts[i,CellDistId[j][l].astype(int),0],FEB_Pts[i,CellDistId[j][l].astype(int),1],FEB_Pts[i,CellDistId[j][l].astype(int),2], c='g', marker='x')
-                #     ax.scatter3D(VTK_Pts[i,j,0],VTK_Pts[i,j,1],VTK_Pts[i,j,2], c='m', marker='x')
-                #     ax.scatter3D(Pt1[0],Pt1[1],Pt1[2], c='b', marker='x')
-                #     ax.scatter3D(Pt2[0],Pt2[1],Pt2[2], c='b', marker='x')
-                #     ax.scatter3D(Pt3[0],Pt3[1],Pt3[2], c='b', marker='x')
-                #     ax.scatter3D(Intersect[0],Intersect[1],Intersect[2], c='b', marker='o')
-                #     plt.show()
                     
     reader = vtk.vtkPolyDataReader()
     
@@ -285,7 +272,7 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,CellIds,nCls,STJ_Id,VAJ_Id
             Conditions += 'Ogd_'
         elif ModelChoice == 'Fung':
             Conditions += 'Fung_'
-        elif ModelChoice == 'HGO_unc':
+        elif ModelChoice == 'HGO':
             Conditions += 'HGO_'
             
         if RunLSChoice:
@@ -293,11 +280,13 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,CellIds,nCls,STJ_Id,VAJ_Id
         else:
             Conditions += 'RunLSF_'
         
+        if FibChoice: 
+            Conditions += 'FibT_'
+        else:
+            Conditions += 'FibF_'
         
         Conditions += ProfileChoice +'_'+ ResChoice
             
-        
-        # fname = './NewFiles/'+ DataDir+'/'+Conditions+'/'+xpltName[0:5] + '_' + str(fid+1)+'.vtk'
         fname = './NewFiles/'+ DataDir+'/'+Conditions+'/'+DataDir + '_' + str(fid+1)+'.vtk'
         directory = os.path.dirname(fname)
         if not os.path.exists(directory):
@@ -360,7 +349,7 @@ def OrderList(flist,N,ref):
 
     return FListOrdered, FId, refN
 
-def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,ProfileChoice,ResChoice,ModelChoice):
+def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,ProfileChoice,ResChoice,ModelChoice,FibChoice):
     '''
     Function to calculate residual with a a given set of parameters
     
@@ -385,6 +374,7 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,C
     ResChoice -  Choice of residual calculation method 
     ModelChoice - Choice of constitutive model
     '''
+    
     #Define Timesteps
     TimeInterp = np.linspace(0,1,nF)
     
@@ -416,36 +406,38 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,C
                 TreeBranches[i].find('c5').text = str(C[5+nC])
                 TreeBranches[i].find('lam_max').text = str(C[6+nC])
                 TreeBranches[i].find('k').text = str(C[7+nC])
-            nC += 7
+                nC += 8
         elif ModelChoice == 'Ogden':
-            tree.find('Material').find('material').find('k').text = str(C[0+nC])
-            tree.find('Material').find('material').find('c1').text = str(C[1+nC])
-            tree.find('Material').find('material').find('c2').text = str(C[2+nC])
-            tree.find('Material').find('material').find('c3').text = str(C[3+nC])
-            tree.find('Material').find('material').find('c4').text = str(C[4+nC])
-            tree.find('Material').find('material').find('c5').text = str(C[5+nC])
-            tree.find('Material').find('material').find('c6').text = str(C[6+nC])
-            tree.find('Material').find('material').find('m1').text = str(C[7+nC])
-            tree.find('Material').find('material').find('m2').text = str(C[8+nC])
-            tree.find('Material').find('material').find('m3').text = str(C[9+nC])
-            tree.find('Material').find('material').find('m4').text = str(C[10+nC])
-            tree.find('Material').find('material').find('m5').text = str(C[11+nC])
-            tree.find('Material').find('material').find('m6').text = str(C[12+nC])
-            nC +=13
+            tree.find('Material').find('material').find('k').text  = str(C[0+nC])
+            tree.find('Material').find('material').find('k').text  = str(C[1+nC])
+            tree.find('Material').find('material').find('c1').text = str(C[2+nC])
+            tree.find('Material').find('material').find('c2').text = str(C[3+nC])
+            tree.find('Material').find('material').find('c3').text = str(C[4+nC])
+            tree.find('Material').find('material').find('c4').text = str(C[5+nC])
+            tree.find('Material').find('material').find('c5').text = str(C[6+nC])
+            tree.find('Material').find('material').find('c6').text = str(C[7+nC])
+            tree.find('Material').find('material').find('m1').text = str(C[8+nC])
+            tree.find('Material').find('material').find('m2').text = str(C[9+nC])
+            tree.find('Material').find('material').find('m3').text = str(C[10+nC])
+            tree.find('Material').find('material').find('m4').text = str(C[11+nC])
+            tree.find('Material').find('material').find('m5').text = str(C[12+nC])
+            tree.find('Material').find('material').find('m6').text = str(C[13+nC])
+            nC +=14
         elif ModelChoice == 'Fung':
-            tree.find('Material').find('material').find('E1').text = str(C[0+nC])
-            tree.find('Material').find('material').find('E2').text = str(C[1+nC])
-            tree.find('Material').find('material').find('E3').text = str(C[2+nC])
-            tree.find('Material').find('material').find('G12').text = str(C[3+nC])
-            tree.find('Material').find('material').find('G23').text = str(C[4+nC])
-            tree.find('Material').find('material').find('G31').text = str(C[5+nC])
-            tree.find('Material').find('material').find('v12').text = str(C[6+nC])
-            tree.find('Material').find('material').find('v23').text = str(C[7+nC])
-            tree.find('Material').find('material').find('v31').text = str(C[8+nC])
-            tree.find('Material').find('material').find('c').text = str(C[9+nC])
-            tree.find('Material').find('material').find('k').text = str(C[10+nC])
+            tree.find('Material').find('material').find('density').text = str(C[0+nC])
+            tree.find('Material').find('material').find('E1').text      = str(C[1+nC])
+            tree.find('Material').find('material').find('E2').text      = str(C[2+nC])
+            tree.find('Material').find('material').find('E3').text      = str(C[3+nC])
+            tree.find('Material').find('material').find('G12').text     = str(C[4+nC])
+            tree.find('Material').find('material').find('G23').text     = str(C[5+nC])
+            tree.find('Material').find('material').find('G31').text     = str(C[6+nC])
+            tree.find('Material').find('material').find('v12').text     = str(C[7+nC])
+            tree.find('Material').find('material').find('v23').text     = str(C[8+nC])
+            tree.find('Material').find('material').find('v31').text     = str(C[9+nC])
+            tree.find('Material').find('material').find('c').text       = str(C[10+nC])
+            tree.find('Material').find('material').find('k').text       = str(C[11+nC])
             nC +=11
-        elif ModelChoice == 'HGO_unc':
+        elif ModelChoice == 'HGO':
             TreeBranches = tree.find('Material').findall('material')
             for i in range(nCls):
                 TreeBranches[i].find('c').text = str(C[0+nC])
@@ -457,6 +449,12 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,C
             nC +=6
      
         
+        if FibChoice:
+            theta = C[0+nC]
+            C_tick = np.cross(np.cross(Long[i],Circ[i]),Long[i])
+            New = np.dot(cos(theta),Long[i]) + np.dot(sin(theta),C_tick)
+            TreeBranches[i].find('fiber').text = str(New[0])+str(',')+str(New[1])+str(',')+str(New[2])
+            nC += 1
     # Define shape and value of pressure profile defined between 0 and 1. The pressure magnitude is defined separately 
     if ProfileChoice == 'Triangle':
         # A triangular profile that starts and ends with 0 and time of the peak is defined by parameter estimate
@@ -569,7 +567,7 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,C
     XPLTfilename = './FEB_Files/' + DataDir + '.xplt'
     
     # Get data from .xplt 
-    feb,file_size,nStates, mesh = GetFEB(XPLTfilename)
+    feb,file_size,nStates, mesh = GetFEB(XPLTfilename,False)
     
     nNodes, nElems, nVar, StateTimes, VarNames, VarType = GetMeshInfo(feb)
     
@@ -684,7 +682,7 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,C
             
     return Res.flatten()
     
-def RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice):
+def RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice,FibChoice):
     '''
     Function to run the least squares 
     
@@ -795,18 +793,18 @@ def RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,Profil
             B_Min = np.concatenate((B_Min,[0,0,0,0]))
             B_Max = np.concatenate((B_Max,[100,1000,1000,1000]))
         if ModelChoice == 'tiMR':
-            C = np.concatenate((C,[10.0,10.0,10.0,10.0,10.0,10.0,10.0,10.0]))
+            C = np.concatenate((C,[10,10,10,10,10,10,10,10]))
             B_Min = np.concatenate((B_Min,[0,0,0,0,0,0,0,0]))
             B_Max = np.concatenate((B_Max,[1000,1000,1000,1000,1000,1000,1000,1000]))
         elif ModelChoice == 'Ogden':
-            C = np.concatenate((C,[10,10,10,10,10,10,10,10,10,10,10,10,10]))
-            B_Min = np.concatenate((B_Min,[0,0,0,0,0,0,0,0,0,0,0,0,0]))
-            B_Max = np.concatenate((B_Max,[100,100,100,100,100,100,100,100,100,100,100,100,100]))
+            C = np.concatenate((C,[1,10,10,10,10,10,10,10,10,10,10,10,10,10]))
+            B_Min = np.concatenate((B_Min,[0,0,0,0,0,0,0,0,0,0,0,0,0,0]))
+            B_Max = np.concatenate((B_Max,[100,100,100,100,100,100,100,100,100,100,100,100,100,100]))
         elif ModelChoice == 'Fung':
-            C = np.concatenate((C,[1,2,1.5,0.5,0.1,1,1.2,2,1.5,0.5,0.1]))
-            B_Min = np.concatenate((B_Min,[0,0,0,0,0,0,0,0,0,0,0]))
-            B_Max = np.concatenate((B_Max,[10,10,10,10,10,10,10,10,10,10,10]))
-        elif ModelChoice == 'HGO_unc':
+            C = np.concatenate((C,[1,1,2,1.5,0.5,0.1,1,1.2,2,1.5,0.5,0.1]))
+            B_Min = np.concatenate((B_Min,[1,0,0,0,0,0,0,0,0,0,0,0]))
+            B_Max = np.concatenate((B_Max,[10,10,10,10,10,10,10,10,10,10,10,10]))
+        elif ModelChoice == 'HGO':
             C = np.concatenate((C,[1,2,1.5,0.2,0.1,1]))
             B_Min = np.concatenate((B_Min,[0,0,0,0,0,0]))
             B_Max = np.concatenate((B_Max,[10,10,10,0.3333,10,10]))
@@ -814,6 +812,11 @@ def RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,Profil
         C = np.concatenate((C,[]))
         B_Min = np.concatenate((B_Min,[]))
         B_Max = np.concatenate((B_Max,[]))
+    
+    if FibChoice:
+        C = np.concatenate((C,[0]))
+        B_Min = np.concatenate((B_Min,[-pi/4]))
+        B_Max = np.concatenate((B_Max,[pi/4]))
         
     if ProfileChoice == 'Triangle':
         C = np.concatenate((C,[1/2]))
@@ -846,11 +849,11 @@ def RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,Profil
         B_Max = np.concatenate((B_Max,[1,100,100,100]))
     
     #Create .feb file of VTK remeshed case
-    VTK2Feb_Func(DataDir,ref,nF,nCls,Disp_Wall_STJ,Disp_Wall_VAJ,STJ_Id,VAJ_Id,Circ_Cls,Long_Cls,ProfileChoice,ModelChoice,CF)
+    VTK2Feb_Func(DataDir,ref,nF,nCls,Disp_Wall_STJ,Disp_Wall_VAJ,STJ_Id,VAJ_Id,Circ_Cls,Long_Cls,ProfileChoice,ModelChoice,FibChoice,CF)
     
     #Choose to run Least Squares optimisation or just run febio simulation
     if RunLSChoice:
-        Out = least_squares(GetRes,C,bounds = [B_Min,B_Max],jac = '3-point', verbose=2,args=(DataDir,Pts,Disp_Wall,Norm,Circ,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,ProfileChoice,ResChoice,ModelChoice))
+        Out = least_squares(GetRes,C,bounds = [B_Min,B_Max],jac = '3-point', verbose=2,args=(DataDir,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,ProfileChoice,ResChoice,ModelChoice,FibChoice))
         Cs = Out.x
     else:
         os.system('/Applications/FEBioStudio/FEBioStudio.app/Contents/MacOS/febio3 -i '+ './FEB_Files/' + DataDir+'.feb')
@@ -892,108 +895,106 @@ if __name__=='__main__':
     
     #Choose if data needs remeshed
     PressureChoice = False           # Choose to vary pressure magnitude
-    ModelParChoice = True            # Choose to vary modelparameters
-    RunLSChoice    = False            # Choose to run least Squares (or default/initial guess)
+    ModelParChoice = True            # Choose to vary model parameters
+    RunLSChoice    = False           # Choose to run least Squares (or default/initial guess)
+    FibChoice      = True            # Choose to vary fiber direction, as an angle from the circumferential direction
     ProfileChoice  = ['Windkess']    # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Bio', 'Fourier','Fitted'
     ResChoice      = ['CellPlane']   # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
-    ModelChoice    = ['HGO_unc']          # Choose model from 'MR','tiMR','Ogden' and 'Fung',  'HGO_unc'
+    ModelChoice    = ['HGO']         # Choose model from 'MR','tiMR','Ogden' and 'Fung',  'HGO'
     
     #Create empty array for params
     Params = []
+    #loop round different choices
     for PC in ProfileChoice:
         for MC in ModelChoice:
             for RC in ResChoice:
                 #Run least squares script
-                Out, Pts, Disp_Wall, Norm, CellIds, nCls, STJ_Id, VAJ_Id, FId, nF = RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,PC,RunLSChoice,RC,MC)
+                Out, Pts, Disp_Wall, Norm, CellIds, nCls, STJ_Id, VAJ_Id, FId, nF = RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,PC,RunLSChoice,RC,MC,FibChoice)
                 
-                RemeshedFiles = glob.glob('./Remeshed/'+DataDir+'/*')
-                
-                for Fname in list(RemeshedFiles):
-                    X = Fname.replace(common,'')
-                    X = X.replace('.vtk','')
-                    X = np.fromstring(X, dtype=int, sep=' ')
-                    X=X[0]
-                    if X==refN:
-                        RemeshedFile=Fname
-                
+                # Save the returned parameter array
                 Params.append([DataDir,Out])
-                nStates,Residual = SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,PC,RunLSChoice,RC,MC,Out)
-                if nF != nStates:
+                
+                # Save new files
+                nStates,Residual = SaveFiles(DataDir,ref,Pts,Disp_Wall,Norm,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,PC,RunLSChoice,RC,MC,FibChoice,Out)
+                
+                # Note if the number of frames is repeated
+                if nF != nStates: 
                     print('The number of frames in original dataset: ', nF)
                     print('The number of frames in simulated dataset: ', nStates)
                 else:
                     print('The number of frames: ', nF)
-                    
-                nNodes = len(Residual[0])
-                print('The number of nodes: ',nNodes)
             
+                # Start counting parameters, based on model choices
                 nC = 0
                 if PressureChoice:
                     Pressure_Mag = Out[0]
                     print('Pressure Magnitude: ',Pressure_Mag)
                     nC +=1
                 else:
-                    print('Pressure Magnitude: ',-0.005332)
+                    print('Pressure Magnitude is Default')
                     
                 if ModelParChoice:
                     if MC == 'MR':
-                        Model_density = Out[0+nC]
-                        Model_C1 = Out[1+nC]
-                        Model_C2 = Out[2+nC]
-                        Model_k  = Out[3+nC]
-                        print('Model C1: ',Model_C1)
-                        print('Model C2: ',Model_C2)
-                        print('Model k:  ',Model_k)
+                        print('Model density: ',Out[0+nC])
+                        print('Model C1: ',Out[1+nC])
+                        print('Model C2: ',Out[2+nC])
+                        print('Model k:  ',Out[3+nC])
+                        nC +=4
                     if MC == 'tiMR':
-                        Model_density = Out[0+nC]
-                        Model_C1      = Out[1+nC]
-                        Model_C2      = Out[2+nC]
-                        Model_C3      = Out[3+nC]
-                        Model_C4      = Out[4+nC]
-                        Model_C5      = Out[5+nC]
-                        Model_lam_max = Out[6+nC]
-                        Model_k       = Out[7+nC]
-                        print('Model density: ',Model_density)
-                        print('Model C1: ',Model_C1)
-                        print('Model C2: ',Model_C2)
-                        print('Model C3: ',Model_C3)
-                        print('Model C4: ',Model_C4)
-                        print('Model C5: ',Model_C5)
-                        print('Model lam_max:  ',Model_lam_max)
-                        print('Model k:  ',Model_k)
+                        print('Model density: ',Out[0+nC])
+                        print('Model C1: ',Out[1+nC])
+                        print('Model C2: ',Out[2+nC])
+                        print('Model C3: ',Out[3+nC])
+                        print('Model C4: ',Out[4+nC])
+                        print('Model C5: ',Out[5+nC])
+                        print('Model k:  ',Out[6+nC])
+                        print('Model lam_max:  ',Out[7+nC])
+                        nC +=8
                     elif MC == 'Ogden':
-                        Model_bulk = Out[0+nC]
-                        Model_c1   = Out[1+nC]
-                        Model_c2   = Out[2+nC]
-                        Model_c3   = Out[3+nC]
-                        Model_c4   = Out[4+nC]
-                        Model_c5   = Out[5+nC]
-                        Model_c6   = Out[6+nC]
-                        Model_m1   = Out[7+nC]
-                        Model_m2   = Out[8+nC]
-                        Model_m3   = Out[9+nC]
-                        Model_m4   = Out[10+nC]
-                        Model_m5   = Out[11+nC]
-                        Model_m6   = Out[12+nC]
+                        print('Model density',Out[0+nC])
+                        print('Model k',Out[1+nC])
+                        print('Model c1',Out[2+nC])
+                        print('Model c2',Out[3+nC])
+                        print('Model c3',Out[4+nC])
+                        print('Model c4',Out[5+nC])
+                        print('Model c5',Out[6+nC])
+                        print('Model c6',Out[7+nC])
+                        print('Model m1',Out[8+nC])
+                        print('Model m2',Out[9+nC])
+                        print('Model m3',Out[10+nC])
+                        print('Model m4',Out[11+nC])
+                        print('Model m5',Out[12+nC])
+                        print('Model m6',Out[13+nC])
+                        nC += 14 
                     elif MC == 'Fung':
-                        Model_E1   = Out[0+nC]
-                        Model_E2   = Out[1+nC]
-                        Model_E3   = Out[2+nC]
-                        Model_G12  = Out[3+nC]
-                        Model_G23  = Out[4+nC]
-                        Model_G13  = Out[5+nC]
-                        Model_v12  = Out[6+nC]
-                        Model_v23  = Out[7+nC]
-                        Model_v13  = Out[8+nC]
-                        Model_c    = Out[9+nC]
-                        Model_k    = Out[10+nC]
-                        
-                    nC+=3
+                        print('Model density: ',Out[0+nC])
+                        print('Model E1: ',Out[1+nC])
+                        print('Model E2: ',Out[2+nC])
+                        print('Model E3: ',Out[3+nC])
+                        print('Model G12: ',Out[4+nC])
+                        print('Model G23: ',Out[5+nC])
+                        print('Model G31: ',Out[6+nC])
+                        print('Model v12: ',Out[7+nC])
+                        print('Model v23: ',Out[8+nC])
+                        print('Model v31: ',Out[9+nC])
+                        print('Model c:  ',Out[10+nC])
+                        print('Model k:  ',Out[11+nC])
+                        nC +=12
+                    elif MC == 'HGO':
+                        print('Model c: ',Out[0+nC])
+                        print('Model k1: ',Out[1+nC])
+                        print('Model k2: ',Out[2+nC])
+                        print('Model gamma: ',Out[3+nC])
+                        print('Model kappa: ',Out[4+nC])
+                        print('Model k:  ',Out[5+nC])
+                        nC+=6
                 else:
-                    print('Model C1: ',1)
-                    print('Model C2: ',0)
-                    print('Model k: ',10)
-           
+                    print('Model parameters not optimised')
+                
+                if FibChoice:
+                    print('Fiber angle is:  ',Out[0+nC])
+                    nC += 1
+                    
                 if ModelChoice:
                     line = ''
                 else:
@@ -1017,7 +1018,7 @@ if __name__=='__main__':
                 style = col +line
                 
                 XPLTfilename = './FEB_Files/' + DataDir + '.xplt'
-                feb,file_size,nStates, mesh = GetFEB(XPLTfilename)
+                feb,file_size,nStates, mesh = GetFEB(XPLTfilename,False)
                 nNodes, nElems, nVar, StateTimes, VarNames, VarType = GetMeshInfo(feb)
         
                 TimeData = (np.genfromtxt('TimeProfile.csv', delimiter=','))
@@ -1042,12 +1043,11 @@ if __name__=='__main__':
                     for j in range(nNodes):
                         Residual_VectorMag[i,j] = np.sqrt(np.sum(np.power(Residual[i,j],2)))
                     Residual_Mag[i] = np.sum(Residual_VectorMag[i])
-                    
                 
                 plt.figure(1)
                 plt.plot(np.linspace(0,1,nF),Residual_Mag/nNodes,label = PC)
                 plt.xlabel('Time')
-                plt.ylabel('Relative Residual')
+                plt.ylabel('Relative Residual (per node)')
                 
                 if PC == 'Fitted':
                     plt.figure(2)
