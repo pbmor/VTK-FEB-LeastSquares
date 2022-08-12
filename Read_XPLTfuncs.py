@@ -1,4 +1,3 @@
-
 import numpy as np
 from anytree import NodeMixin, RenderTree, LevelOrderIter
 from inspect import currentframe, getframeinfo
@@ -101,7 +100,7 @@ class xplt_node(NodeMixin):
         chunk = np.fromfile(fid,dtype=np.uint32,count=1)
         if not lookup[asHexString(chunk[0])]==self.name:
             if self.debug:
-                print("ID not met",self.name,lookup[asHexString(chunk[0])])
+                print("ID not met: looking for, ",self.name,", but found, ",lookup[asHexString(chunk[0])])
                 print("Assuming",self.name,"not present and continuing")
             fid.seek(-4,1)
             #return
@@ -213,6 +212,8 @@ def CALL_NODE_COORDS(fid,node):
     nDim = 3
     for i in range(nNodes):
         coords = np.fromfile(fid,dtype=np.float32,count=nDim)
+        
+    print(len(coords))
     return coords
 
 def CALL_STATE_TIME(fid,node):
@@ -234,7 +235,7 @@ def CALL_VARIABLE_DATA(fid,node):
     elif node.parent.parent.name == 'DOMAIN_DATA':
         nPts = node.path[0].children[1].children[1].children[0].children[0].children[2].ELEMENTS
         ItemType = node.path[0].children[0].children[1].children[1].children[VarId].children[0].ITEM_TYPE
-        
+    
     if ItemType == 0:
         DataSize = 1
     elif ItemType == 1:
@@ -247,14 +248,23 @@ def CALL_VARIABLE_DATA(fid,node):
         DataSize = nPts*16
     elif ItemType == 5:
         DataSize = nPts*9
-        
-    # print(node.parent.parent.name, node.rank())
-    chunk = np.fromfile(fid,dtype=np.uint32,count=1) #unsure what this refers to
+          
     if node.parent.parent.name == 'NODE_DATA':
-        chunk = np.fromfile(fid,dtype=np.float32,count=DataSize)
+        chunk = np.fromfile(fid,dtype=np.uint32,count=1) 
+        Data = np.fromfile(fid,dtype=np.float32,count=DataSize)
     elif node.parent.parent.name == 'DOMAIN_DATA':
-        chunk = np.fromfile(fid,dtype=np.float32,count=DataSize)
-    return chunk
+            if nPts>1:
+                chunk = np.fromfile(fid,dtype=np.uint32,count=1)
+                Data = np.fromfile(fid,dtype=np.float32,count=DataSize)
+            else:
+                Ids = []
+                Data = []
+                for _ in range(1064):
+                    Ids.append(np.fromfile(fid,dtype=np.uint32,count=1))
+                    chunk = np.fromfile(fid,dtype=np.float32,count=DataSize)
+                    for i in range(len(chunk))[1:len(chunk)]:
+                        Data.append(chunk[i])
+    return Data
 
     
 def ReadObj(obj,Data,DataOut):
@@ -298,8 +308,11 @@ def ReadObj(obj,Data,DataOut):
                     DataOut.append(eval('obj.'+Data))
                 elif Data == 'NODES':
                     DataOut.append(eval('obj.'+Data))
-                elif Data == 'ELEMENTS':
-                    DataOut.append(eval('obj.'+Data))
+        elif obj.name == 'DOMAIN_SECTION' and Data == 'ELEMENTS':
+            if len(obj.children) ==1:
+                DataOut.append(eval('obj.children[0].children[0].children[2].'+Data))
+            else:
+                DataOut.append(len(obj.children))
         else:
             for i in range(len(obj.children)):
                 DataOut = ReadObj(obj.children[i],Data,DataOut)
@@ -375,7 +388,7 @@ def GetMeshInfo(feb):
     return nNodes, nElems, nVar, StateTimes, VarNames, VarType
 
 
-def GetFEB(filename):
+def GetFEB(filename, Tree):
     
     feb = xplt_node('FEB')
     feb.set()
@@ -385,7 +398,7 @@ def GetFEB(filename):
     state_section.append(xplt_node('STATE_SECTION',parent=feb))
     
     xpltFile = filename
-    fid = open(xpltFile, 'rb')
+    fid = open(filename, 'rb')
     fid.seek(0,2)
     file_size=fid.tell()
     fid.seek(0)
@@ -393,20 +406,16 @@ def GetFEB(filename):
     fid.seek(0)
     
     header = xplt_node('HEADER',parent=root)
-    dictionary = xplt_node('DICTIONARY',parent=root)
     
     version = xplt_node('VERSION',parent=header)
-    max_facet_nodes = xplt_node('MAX_FACET_NODES',parent=header)
     compression = xplt_node('COMPRESSION',parent=header)
-    author = xplt_node('AUTHOR',parent=header)
     software = xplt_node('SOFTWARE',parent=header)
     
-    global_var  = xplt_node('GLOBAL_VAR',parent=dictionary)
+    dictionary = xplt_node('DICTIONARY',parent=root)
     nodeset_var  = xplt_node('NODESET_VAR',parent=dictionary)
     domain_var  = xplt_node('DOMAIN_VAR',parent=dictionary)
     surface_var  = xplt_node('SURFACE_VAR',parent=dictionary)
     
-    dictionary_item_global = []
     dictionary_item_nodeset = []
     dictionary_item_domain = []
     dictionary_item_surface = []
@@ -416,14 +425,6 @@ def GetFEB(filename):
     item_name = []
     MAXVAR = 2
     for i in range(MAXVAR): #assume there are maximum MAXVAR dictionary items for each (global, nodeset, domain, and surface)
-        dictionary_item_global.append(xplt_node('DICTIONARY_ITEM',parent=global_var))
-        item_type.append(xplt_node('ITEM_TYPE',parent=dictionary_item_global[i]))
-        item_format.append(xplt_node('ITEM_FORMAT',parent=dictionary_item_global[i]))
-        item_unknown.append(xplt_node('ITEM_UNKNOWN',parent=dictionary_item_global[i]))
-        item_name.append(xplt_node('ITEM_NAME',parent=dictionary_item_global[i]))
-        item_type[-1].set()
-        item_name[-1].set()
-        item_format[-1].set()
     
         dictionary_item_nodeset.append(xplt_node('DICTIONARY_ITEM',parent=nodeset_var))
         item_type.append(xplt_node('ITEM_TYPE',parent=dictionary_item_nodeset[i]))
@@ -460,19 +461,27 @@ def GetFEB(filename):
     node_header = xplt_node('NODE_HEADER',parent=node_section)
     node_coords = xplt_node('NODE_COORDS',parent=node_section)
     
-    domain = xplt_node('DOMAIN',parent=domain_section)
-    
+    if filename == './FEB_Files/tav02.xplt':
+        domains = []
+        for _ in range(1064):
+            domains.append(xplt_node('DOMAIN',parent=domain_section))
+    else:
+        domains = [xplt_node('DOMAIN',parent=domain_section)]
+        
     nodes = xplt_node('NODES',parent=node_header)
     dim   = xplt_node('DIM',parent=node_header)
-    name  = xplt_node('NAME',parent=node_header) 
+    # name  = xplt_node('NAME',parent=node_header) 
     
-    domain_header = xplt_node('DOMAIN_HEADER',parent=domain)
-    element_list = xplt_node('ELEMENT_LIST',parent=domain)
+    for domain in domains:
+        domain_header = xplt_node('DOMAIN_HEADER',parent=domain)
     
-    elem_type = xplt_node('ELEM_TYPE',parent=domain_header)
-    part_id = xplt_node('PART_ID',parent=domain_header)
-    elements = xplt_node('ELEMENTS',parent=domain_header)
-    name = xplt_node('NAME',parent=domain_header) 
+        elem_type = xplt_node('ELEM_TYPE',parent=domain_header)
+        part_id = xplt_node('PART_ID',parent=domain_header)
+        elements = xplt_node('ELEMENTS',parent=domain_header)
+        elem_type.set()
+        elements.set()
+        
+        element_list = xplt_node('ELEMENT_LIST',parent=domain)
     
     state_header = []
     state_unknown2 = []
@@ -492,24 +501,23 @@ def GetFEB(filename):
     
     for i in range(nstates):
         state_header.append(xplt_node('STATE_HEADER',parent=state_section[i]))
+        state_time.append(xplt_node('STATE_TIME',parent=state_header[i]))
+        state_unknown.append(xplt_node('STATE_UNKNOWN',parent=state_header[i]))
+            
         state_unknown2.append(xplt_node('STATE_UNKNOWN2',parent=state_section[i]))
         state_data.append(xplt_node('STATE_DATA',parent=state_section[i]))
     
-        state_time.append(xplt_node('STATE_TIME',parent=state_header[i]))
-        state_unknown.append(xplt_node('STATE_UNKNOWN',parent=state_header[i]))
-    
-        global_data.append(xplt_node('GLOBAL_DATA',parent=state_data[i]))
+        # global_data.append(xplt_node('GLOBAL_DATA',parent=state_data[i]))
         node_data.append(xplt_node('NODE_DATA',parent=state_data[i]))
+        state_var_node.append(xplt_node('STATE_VAR',parent=node_data[i]))
+        variable_id_node.append(xplt_node('VARIABLE_ID',parent=state_var_node[-1]))
+        variable_data_node.append(xplt_node('VARIABLE_DATA',parent=state_var_node[-1]))
+        variable_data_node[-1].set()
+        variable_id_node[-1].set()
+        
         domain_data.append(xplt_node('DOMAIN_DATA',parent=state_data[i]))
-        surface_data.append(xplt_node('SURFACE_DATA',parent=state_data[i]))
-    
+        
         for j in range(MAXVAR):
-            state_var_node.append(xplt_node('STATE_VAR',parent=node_data[i]))
-            variable_id_node.append(xplt_node('VARIABLE_ID',parent=state_var_node[-1]))
-            variable_data_node.append(xplt_node('VARIABLE_DATA',parent=state_var_node[-1]))
-            variable_data_node[-1].set()
-            variable_id_node[-1].set()
-    
             state_var_domain.append(xplt_node('STATE_VAR',parent=domain_data[i]))
             variable_id_domain.append(xplt_node('VARIABLE_ID',parent=state_var_domain[-1]))
             variable_data_domain.append(xplt_node('VARIABLE_DATA',parent=state_var_domain[-1]))
@@ -532,10 +540,9 @@ def GetFEB(filename):
     
     feb.read_file(fid)
     
-    # for pre,fill,node in RenderTree(feb):
-    #     treestr = u"%s%s" %(pre,node.name)
-    #     print(treestr.ljust(8),node.name,node.read)
+    if Tree:
+        for pre,fill,node in RenderTree(feb):
+            treestr = u"%s%s" %(pre,node.name)
+            print(treestr.ljust(8),node.name,node.read)
         
     return feb, file_size, nstates, mesh
-
-    
