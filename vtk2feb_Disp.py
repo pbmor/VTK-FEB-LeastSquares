@@ -119,6 +119,12 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
     f.write('\t\t<analysis>STATIC</analysis>\n')
     f.write('\t\t<time_steps>'+str(nF)+'</time_steps>\n')
     f.write('\t\t<step_size>'+str(1/nF)+'</step_size>\n')
+    f.write('\t\t<plot_level>PLOT_MUST_POINTS</plot_level>\n')
+    f.write('\t\t<time_stepper>\n')
+    f.write('\t\t\t<dtmax lc="1">'+str(1/nF)+'</dtmax>\n')
+    f.write('\t\t\t<max_retries>5</max_retries>\n')
+    f.write('\t\t\t<opt_iter>10</opt_iter>\n')
+    f.write('\t\t</time_stepper>\n')
     f.write('\t\t<solver>\n')
     f.write('\t\t\t<max_refs>15</max_refs>\n')
     f.write('\t\t\t<max_ups>10</max_ups>\n')
@@ -132,12 +138,6 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
     f.write('\t\t\t<qnmethod>BFGS</qnmethod>\n')
     f.write('\t\t\t<rhoi>0</rhoi>\n')
     f.write('\t\t</solver>\n')
-    f.write('\t\t<time_stepper>\n')
-    f.write('\t\t\t<dtmin>'+str(0.9*1/nF)+'</dtmin>\n')
-    f.write('\t\t\t<dtmax>'+str(1.1*1/nF)+'</dtmax>\n')
-    f.write('\t\t\t<max_retries>5</max_retries>\n')
-    f.write('\t\t\t<opt_iter>10</opt_iter>\n')
-    f.write('\t\t</time_stepper>\n')
     f.write('\t</Control>\n')
     
     f.write('\t<Globals>\n')
@@ -213,11 +213,11 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
         f.write('\t\t</material>\n')
     elif ModelChoice == 'HGO':
         f.write('\t\t<material id="1" name="Material1" type="Holzapfel-Gasser-Ogden">\n')
-        f.write('\t\t\t<c>1.0</c>\n')
-        f.write('\t\t\t<k1>1.0</k1>\n')
-        f.write('\t\t\t<k2>1.0</k2>\n')
-        f.write('\t\t\t<gamma>1.0</gamma>\n')
-        f.write('\t\t\t<kappa>0.10</kappa>\n')
+        f.write('\t\t\t<c>7.6</c>\n')
+        f.write('\t\t\t<k1>1000.0</k1>\n')
+        f.write('\t\t\t<k2>520.0</k2>\n')
+        f.write('\t\t\t<gamma>50.0</gamma>\n')
+        f.write('\t\t\t<kappa>0.20</kappa>\n')
         f.write('\t\t\t<k>100000.0</k>\n')
         f.write('\t\t</material>\n')
                 
@@ -370,12 +370,19 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
     f.write('\t\t\t<interpolate>SMOOTH</interpolate>\n')
     f.write('\t\t\t<points>\n')
     for i in range(nF):
+        f.write('\t\t\t\t<point>' + str(TimeInterp[i]) + ',' + str(1/nF)+'</point>\n')
+    f.write('\t\t\t</points>\n')
+    f.write('\t\t</load_controller>\n')
+    f.write('\t\t<load_controller id="2" type="loadcurve">\n')
+    f.write('\t\t\t<interpolate>SMOOTH</interpolate>\n')
+    f.write('\t\t\t<points>\n')
+    for i in range(nF):
         f.write('\t\t\t\t<point>' + str(TimeInterp[i]) + ',' + str(PressureInterpStan[i])+'</point>\n')
     f.write('\t\t\t</points>\n')
     f.write('\t\t</load_controller>\n')
     for k, j in enumerate(['x','y','z']):
         for i in range(len(STJ_Id)):
-            f.write('\t\t<load_controller id="'+str(1+1+i + len(STJ_Id)*k)+'" type="loadcurve">\n')
+            f.write('\t\t<load_controller id="'+str(2+1+i + len(STJ_Id)*k)+'" type="loadcurve">\n')
             f.write('\t\t\t<interpolate>SMOOTH</interpolate>\n')
             f.write('\t\t\t<points>\n')
             for l in range(nF):
@@ -384,7 +391,7 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
             f.write('\t\t</load_controller>\n')
     for k, j in enumerate(['x','y','z']):
         for i in range(len(VAJ_Id)):
-            f.write('\t\t<load_controller id="'+str(1+1+3*len(STJ_Id)+i + len(VAJ_Id)*k)+'" type="loadcurve">\n')
+            f.write('\t\t<load_controller id="'+str(2+1+3*len(STJ_Id)+i + len(VAJ_Id)*k)+'" type="loadcurve">\n')
             f.write('\t\t\t<interpolate>SMOOTH</interpolate>\n')
             f.write('\t\t\t<points>\n')
             for l in range(nF):
