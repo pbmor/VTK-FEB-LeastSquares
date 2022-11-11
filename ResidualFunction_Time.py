@@ -13,6 +13,7 @@ from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 from math import cos, sin, pi
 from math import exp as e
+from itertools import zip_longest
 
 def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice,FibChoice,Out):
     '''
@@ -44,8 +45,13 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,
     #Name of existing .xplt file that has been created 
     xpltName = './FEB_Files/' + DataDir + '.xplt'
     
+    if ModelChoice == 'tiMR':
+        nDoms = nCls
+    else:
+        nDoms = nCls
+    
     #Get Febio data tree, feb, and number of states, note the number of frames from Febio may not be the same of the original number of frames
-    feb, _,nStates, _ = GetFEB(xpltName,False)
+    feb, _,nStates, _ = GetFEB(xpltName,nDoms,False)
     
     #Get number of points , nNodes, and number of elements, nElems, number of variables from febio calc, nVar, the times of each frame, StateTimes, get names of variables and types, VarNames and VarTypes 
     nNodes, nElems, nVar, StateTimes, VarNames, VarType = GetMeshInfo(feb)
@@ -139,10 +145,10 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,
             VAJ_Cent += Pts[i]
         VAJ_Cent /= nVAJ
         Residual = np.zeros((nStates,nNodes))
-        for i in range(nStates):
+        for i in range(nF):
             for j in range(nNodes):
                 VTK_Pt = np.add(Pts[j],Disp_Wall[i,j])
-                FEB_Pt = np.add(Pts[j],Disp_FEB[i,j])
+                FEB_Pt = np.add(Pts[j],Disp_FEB_Interp[i,j])
                 VTK2L = (np.linalg.norm(np.cross(np.subtract(VTK_Pt,VAJ_Cent),np.subtract(VTK_Pt,STJ_Cent))))/np.linalg.norm(np.subtract(STJ_Cent,VAJ_Cent))
                 FEB2L = (np.linalg.norm(np.cross(np.subtract(FEB_Pt,VAJ_Cent),np.subtract(FEB_Pt,STJ_Cent))))/np.linalg.norm(np.subtract(STJ_Cent,VAJ_Cent))
             
@@ -189,7 +195,7 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,
                 ndotu = planeNorm.dot(PtNorm)
                 if abs(ndotu) < 1e-6:
                     Residual[i,j] =  0.0
-                    # raise RuntimeError("no intersection or line is within plane")
+                    raise RuntimeError("no intersection or line is within plane")
                 else:
                     w = Pt - planePt
                     si = -planeNorm.dot(w) / ndotu
@@ -303,31 +309,21 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,
             Conditions += 'ModelT_'
         else:
             Conditions += 'ModelF_'
-            
-        if ModelChoice == 'MR':
-            Conditions += 'MR_'
-        elif ModelChoice == 'tiMR':
-            Conditions += 'tiMR_'
-        elif ModelChoice == 'Ogden':
-            Conditions += 'Ogd_'
-        elif ModelChoice == 'Fung':
-            Conditions += 'Fung_'
-        elif ModelChoice == 'HGO':
-            Conditions += 'HGO_'
-            
-        if RunLSChoice:
-            Conditions += 'RunLST_'
-        else:
-            Conditions += 'RunLSF_'
         
         if FibChoice and ModelChoice == 'tiMR': 
             Conditions += 'FibT_'
         else:
             Conditions += 'FibF_'
         
-        Conditions += ProfileChoice +'_'+ ResChoice
-            
-        fname = './NewFiles/'+ DataDir+'/'+Conditions+'/'+DataDir + '_' + str(fid+1)+'.vtk'
+        Conditions += ResChoice
+        
+        if RunLSChoice:
+            RunDir = 'RunLS'
+        else:
+            RunDir = 'RunDefault'
+        
+        fname = './NewFiles/'+ DataDir+'/'+ModelChoice+'/'+RunDir + '/' + ProfileChoice+ '/' + Conditions+'/'+DataDir + '_' + str(fid+1)+'.vtk'
+        
         directory = os.path.dirname(fname)
         if not os.path.exists(directory):
             os.makedirs(directory)
@@ -337,11 +333,9 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,
         writer.SetInputData(polydata)
         writer.Write()
         
-        # np.save('./NewFiles/'+ DataDir+'/'+Conditions+'/'+'Params',Out)
-        
         feb_name = './FEB_Files/'+ DataDir+'.feb'
         
-        os.system('cp '+ feb_name + ' ./NewFiles/'+ DataDir+'/'+Conditions+'/')
+        os.system('cp '+ feb_name + ' ./NewFiles/'+ DataDir+'/'+ModelChoice+'/'+RunDir + '/' + ProfileChoice+ '/' + Conditions+'/')
         
     return nStates, Residual
     
@@ -393,6 +387,145 @@ def OrderList(flist,N,ref):
 
     return FListOrdered, FId, refN
 
+def GetPressure(C,nC,nF,CF,ProfileChoice,TimeInterp):
+    '''
+    Function to calculate the pressure profile, for a given choice
+    
+    Inputs:
+    C - array of parameters used
+    nC - Count of parameter array
+    nF - Number of Frames
+    CF - Id of the valve closing frame 
+    ProfileChoice - Choice of pressure profile shape function
+    '''
+    # Define shape and value of pressure profile defined between 0 and 1. The pressure magnitude is defined separately 
+    if ProfileChoice == 'Triangle':
+        # A triangular profile that starts and ends with 0 and time of the peak is defined by parameter estimate
+        Peak = C[0+nC]
+        PressureInterp = np.zeros(nF)
+        Line_A = (1/Peak)*TimeInterp
+        Line_B = (-1/(1 - Peak))*TimeInterp + 1/(1-Peak)
+        for i in range(nF):
+            if TimeInterp[i] <=Peak:
+                PressureInterp[i] = Line_A[i]
+            else:
+                PressureInterp[i] = Line_B[i]
+    elif ProfileChoice == 'Step':
+        # a box profile shape that is 1 in a range and 0 elsewhere
+        PressureInterp = np.zeros(nF)
+        for i in range(nF):
+            if (TimeInterp[i] >=C[0+nC]) and (TimeInterp[i] <= C[1+nC]):
+                PressureInterp[i] = 1.0
+    elif ProfileChoice == 'SmoothStep':
+        # A box shape with smoothers transitions with sigmoidal function
+        PressureInterp = np.zeros(nF)
+        for i in range(nF):
+            PressureInterp[i] = (1/(1+e(-C[2+nC]*(TimeInterp[i]-C[0+nC]))))*(1-1/(1+e(-C[3+nC]*(TimeInterp[i]-C[1+nC]))))
+    elif ProfileChoice == 'Virtual':
+        TimeData = (np.genfromtxt('TimeProfile.csv', delimiter=','))
+        PressureData = np.genfromtxt('PressureProfile.csv', delimiter=',')
+        PressureInterp = np.interp(TimeInterp,TimeData,PressureData)
+        PressureInterp = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
+    elif ProfileChoice == 'Fourier':
+        # A profile shape defined by fourier series
+        PressureInterp = np.zeros(nF)
+        x=TimeInterp
+        for i in range(nF):
+            PressureInterp[i] = C[0+nC]*sin(pi*x[i])+C[1+nC]*sin(2*pi*x[i])+C[2+nC]*sin(4*pi*x[i])+C[3+nC]*sin(8*pi*x[i])
+    elif ProfileChoice == 'Fitted':
+        # A fourier series where every point is chosen by paramter estimates
+        PressureInterp = np.zeros(nF)
+        for i in range(nF-2):
+            PressureInterp[i+1] = C[i+nC]
+    elif ProfileChoice == 'Windkessel':
+        #Profile created with windkessel model
+        qi_mag = C[0+nC]
+        Rp = C[1+nC]
+        Rd = C[2+nC]
+        Cp  = C[3+nC]
+        t = np.linspace(0, 100, 5001)
+        qi = []
+        CFt = CF/nF
+        for ti in t:
+            if ti%1>0 and ti%1<CFt:
+                qi.append(qi_mag*sin(pi*(ti%1)/CFt))
+                #qi.append(qi_mag)
+            else:
+                qi.append(0)
+        qi = np.array(qi)
+        qi_func = interp1d(t,qi, fill_value="extrapolate")
+        def func(y,t):
+            return (qi_func(t)-y)/Cp/Rd
+        qo = odeint(func,0,t).flatten()
+        # Get final profile once profile shape has settled
+        last = (t>=99)*(t<100)
+        Pressure = Rp*qi+Rd*qo
+        PressureInterp = np.interp(np.linspace(99,100,nF),t[last],Pressure[last])
+        # PressureInterp = np.subtract(PressureInterp,PressureInterp[0])
+    elif ProfileChoice[0:3] == 'Set':
+        if ProfileChoice[3:] == 'Triangle':
+            Peak = 0.5
+            PressureInterp = np.zeros(nF)
+            Line_A = (1/Peak)*TimeInterp
+            Line_B = (-1/(1 - Peak))*TimeInterp + 1/(1-Peak)
+            for i in range(nF):
+                if TimeInterp[i] <=Peak:
+                    PressureInterp[i] = Line_A[i]
+                else:
+                    PressureInterp[i] = Line_B[i]
+            PressureInterp = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
+        elif ProfileChoice[3:] == 'Step':
+            PressureInterp = np.zeros(nF)
+            for i in range(nF):
+                if (TimeInterp[i] >=0.2) and (TimeInterp[i] <= 0.5):
+                    PressureInterp[i] = 1.0
+            PressureInterp = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
+        elif ProfileChoice[3:] == 'SmoothStep':
+            PressureInterp = np.zeros(nF)
+            for i in range(nF):
+                PressureInterp[i] = (1/(1+e(-50*(TimeInterp[i]-0.2))))*(1-1/(1+e(-50*(TimeInterp[i]-0.5))))
+            PressureInterp = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
+        elif ProfileChoice[3:] == 'Virtual':
+            TimeData = (np.genfromtxt('TimeProfile.csv', delimiter=','))
+            PressureData = np.genfromtxt('PressureProfile.csv', delimiter=',')
+            PressureInterp = np.interp(TimeInterp,TimeData,PressureData)
+            PressureInterp = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
+        elif ProfileChoice[3:] == 'Fourier':
+            PressureInterp = np.zeros(nF)
+            x=TimeInterp
+            for i in range(nF):
+                PressureInterp[i] = 3.0*sin(pi*x[i])+1.0*sin(2*pi*x[i])+0.0*sin(4*pi*x[i])+0.05*sin(8*pi*x[i])
+            PressureInterp = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
+        elif ProfileChoice[3:] == 'Fitted':
+            PressureInterp = 0.0*np.ones(nF)
+        elif ProfileChoice[3:] == 'Windkessel':
+            qi_mag = 11.0
+            Rp     = 1.4
+            Rd     = 14
+            Cp     = 0.004
+            t = np.linspace(0, 100, 5001)
+            qi = []
+            CFt = CF/nF
+            for ti in t:
+                if ti%1>0 and ti%1<CFt:
+                    qi.append(qi_mag*sin(pi*(ti%1)/CFt))
+                    #qi.append(qi_mag)
+                else:
+                    qi.append(0)
+            qi = np.array(qi)
+            qi_func = interp1d(t,qi, fill_value="extrapolate")
+            def func(y,t):
+                return (qi_func(t)-y)/Cp/Rd
+            qo = odeint(func,0,t).flatten()
+            last = (t>=99)*(t<100)
+            Pressure = Rp*qi+Rd*qo
+            PressureInterp = np.interp(np.linspace(99,100,nF),t[last],Pressure[last])
+        
+        PressureInterp = np.subtract(PressureInterp,min(PressureInterp))
+        PressureInterp = np.divide(PressureInterp,max(PressureInterp))
+        
+    return PressureInterp
+    
 def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,ProfileChoice,ResChoice,ModelChoice,FibChoice):
     '''
     Function to calculate residual with a a given set of parameters
@@ -428,17 +561,21 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId
     nC = 0
     # Define pressure magnitude
     if PressureChoice:
-        tree.find('Loads').find('surface_load').find('pressure').text = str(C[0])
+        if ModelChoice == 'tiMR':
+            tree.find('Loads').find('surface_load').find('pressure').text = str(-C[0])
+        else:
+            tree.find('Loads').find('surface_load').find('pressure').text = str(C[0])
+            
         nC += 1
     
     # Replace material properties with parameter estimates
     if ModelParChoice:
         if ModelChoice == 'MR':
             tree.find('Material').find('material').find('density').text = str(C[0+nC])
-            tree.find('Material').find('material').find('c1').text = str(C[1+nC])
-            tree.find('Material').find('material').find('c2').text = str(C[2+nC])
-            tree.find('Material').find('material').find('k').text = str(C[3+nC])
-            nC += 3
+            tree.find('Material').find('material').find('c1').text      = str(C[1+nC])
+            tree.find('Material').find('material').find('c2').text      = str(C[2+nC])
+            tree.find('Material').find('material').find('k').text       = str(C[3+nC])
+            nC += 4
         if ModelChoice == 'tiMR':
             TreeBranches = tree.find('Material').findall('material')
             for i in range(nCls):
@@ -452,7 +589,7 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId
                 TreeBranches[i].find('k').text = str(C[7+nC])
             nC += 8
         elif ModelChoice == 'Ogden':
-            tree.find('Material').find('material').find('k').text  = str(C[0+nC])
+            tree.find('Material').find('material').find('density').text  = str(C[0+nC])
             tree.find('Material').find('material').find('k').text  = str(C[1+nC])
             tree.find('Material').find('material').find('c1').text = str(C[2+nC])
             tree.find('Material').find('material').find('c2').text = str(C[3+nC])
@@ -480,16 +617,14 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId
             tree.find('Material').find('material').find('v31').text     = str(C[9+nC])
             tree.find('Material').find('material').find('c').text       = str(C[10+nC])
             tree.find('Material').find('material').find('k').text       = str(C[11+nC])
-            nC +=11
+            nC +=12
         elif ModelChoice == 'HGO':
-            TreeBranches = tree.find('Material').findall('material')
-            for i in range(nCls):
-                TreeBranches[i].find('c').text = str(C[0+nC])
-                TreeBranches[i].find('k1').text = str(C[1+nC])
-                TreeBranches[i].find('k2').text = str(C[2+nC])
-                TreeBranches[i].find('kappa').text = str(C[3+nC])
-                TreeBranches[i].find('gamma').text = str(C[4+nC])
-                TreeBranches[i].find('k').text = str(C[5+nC])
+            tree.find('Material').find('material').find('c').text     = str(C[0+nC])
+            tree.find('Material').find('material').find('k1').text    = str(C[1+nC])
+            tree.find('Material').find('material').find('k2').text    = str(C[2+nC])
+            tree.find('Material').find('material').find('gamma').text = str(C[3+nC])
+            tree.find('Material').find('material').find('kappa').text = str(C[4+nC])
+            tree.find('Material').find('material').find('k').text     = str(C[5+nC])
             nC +=6
      
         
@@ -500,106 +635,14 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId
                 New = np.dot(cos(theta),Circ[i]) + np.dot(sin(theta),C_tick)
                 TreeBranches[i].find('fiber').text = str(New[0])+str(',')+str(New[1])+str(',')+str(New[2])
             nC += 1
-    # Define shape and value of pressure profile defined between 0 and 1. The pressure magnitude is defined separately 
-    if ProfileChoice == 'Triangle':
-        # A triangular profile that starts and ends with 0 and time of the peak is defined by parameter estimate
-        Peak = C[0+nC]
-        PressureInterp = np.zeros(nF)
-        Line_A = (1/Peak)*TimeInterp
-        Line_B = (-1/(1 - Peak))*TimeInterp + 1/(1-Peak)
-        for i in range(nF):
-            if TimeInterp[i] <=Peak:
-                PressureInterp[i] = Line_A[i]
-            else:
-                PressureInterp[i] = Line_B[i]
+            
+    #Get Pressure Profile
+    if ProfileChoice[0:3] != 'Set':
+        PressureInterp = GetPressure(C,nC,nF,CF,ProfileChoice,TimeInterp)
         for idx, Pt in enumerate(tree.find('LoadData').find('load_controller').find('points').findall("point")):
-            Pt.text = str(TimeInterp[idx])+','+str(PressureInterp[idx])
-    elif ProfileChoice == 'Step':
-        # a box profile shape that is 1 in a range and 0 elsewhere
-        PressureInterp = np.zeros(nF)
-        for i in range(nF):
-            if (TimeInterp[i] >=C[0+nC]) and (TimeInterp[i] <= C[1+nC]):
-                PressureInterp[i] = 1.0
-        for idx, Pt in enumerate(tree.find('LoadData').find('load_controller').find('points').findall("point")):
-            Pt.text = str(TimeInterp[idx])+','+str(PressureInterp[idx])
-    elif ProfileChoice == 'SmoothStep':
-        # A box shape with smoothers transitions with sigmoidal function
-        PressureInterp = np.zeros(nF)
-        for i in range(nF):
-            PressureInterp[i] = (1/(1+e(-C[2+nC]*(TimeInterp[i]-C[0+nC]))))*(1-1/(1+e(-C[3+nC]*(TimeInterp[i]-C[1+nC]))))
-        for idx, Pt in enumerate(tree.find('LoadData').find('load_controller').find('points').findall("point")):
-            Pt.text = str(TimeInterp[idx])+','+str(PressureInterp[idx])
-    elif ProfileChoice == 'Fourier':
-        # A profile shape defined by fourier series
-        PressureInterp = np.zeros(nF)
-        x=TimeInterp
-        for i in range(nF):
-            PressureInterp[i] = C[0+nC]*sin(pi*x[i])+C[1+nC]*sin(2*pi*x[i])+C[2+nC]*sin(4*pi*x[i])+C[3+nC]*sin(8*pi*x[i])
-        for idx, Pt in enumerate(tree.find('LoadData').find('load_controller').find('points').findall("point")):
-            Pt.text = str(TimeInterp[idx])+','+str(PressureInterp[idx]) 
-    elif ProfileChoice == 'Fitted':
-        # A fourier series where every point is chosen by paramter estimates
-        PressureInterp = np.zeros(nF)
-        for i in range(nF-2):
-            PressureInterp[i+1] = C[i+nC]
-        for idx, Pt in enumerate(tree.find('LoadData').find('load_controller').find('points').findall("point")):
-            Pt.text = str(TimeInterp[idx])+','+str(PressureInterp[idx]) 
-    elif ProfileChoice == 'Windkess':
-        #Profile created with windkessel model
-        qi_mag = C[0+nC]
-        Rp = C[1+nC]
-        Rd = C[2+nC]
-        Cp  = C[3+nC]
-        t = np.linspace(0, 100, 5001)
-        qi = []
-        CFt = CF/nF
-        for ti in t:
-            if ti%1>0 and ti%1<CFt:
-                qi.append(qi_mag*sin(pi*(ti%1)/CFt))
-                #qi.append(qi_mag)
-            else:
-                qi.append(0)
-        qi = np.array(qi)
-        qi_func = interp1d(t,qi, fill_value="extrapolate")
-        def func(y,t):
-            return (qi_func(t)-y)/Cp/Rd
-        qo = odeint(func,0,t).flatten()
-        # Get final profile once profile shape has settled
-        last = (t>=99)*(t<100)
-        Pressure = Rp*qi+Rd*qo
-        PressureInterp = np.interp(np.linspace(99,100,nF),t[last],Pressure[last])
-        PressureInterp = np.subtract(PressureInterp,PressureInterp[0])
-        # PressureInterp = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
-        for idx, Pt in enumerate(tree.find('LoadData').find('load_controller').find('points').findall("point")):
-            Pt.text = str(TimeInterp[idx])+','+str(PressureInterp[idx]) 
-    elif ProfileChoice[0:3] == 'Set':
-        #Choose to set the profile without paramter choices
-        if ProfileChoice[3:] == 'Windkess':
-            qi_mag = 0.01
-            Rp     = 1.
-            Rd     = 10.
-            Cp     = 1.
-            t = np.linspace(0, 100, 5001)
-            qi = []
-            CFt = CF/nF
-            for ti in t:
-                if ti%1>0 and ti%1<CFt:
-                    qi.append(qi_mag*sin(pi*(ti%1)/CFt))
-                    #qi.append(qi_mag)
-                else:
-                    qi.append(0)
-            qi = np.array(qi)
-            qi_func = interp1d(t,qi, fill_value="extrapolate")
-            def func(y,t):
-                return (qi_func(t)-y)/Cp/Rd
-            qo = odeint(func,0,t).flatten()
-            last = (t>=99)*(t<100)
-            Pressure = Rp*qi+Rd*qo
-            PressureInterp = np.interp(np.linspace(99,100,nF),t[last],Pressure[last])
-            PressureInterp = np.subtract(PressureInterp,PressureInterp[0])
-            for idx, Pt in enumerate(tree.find('LoadData').find('load_controller').find('points').findall("point")):
-                Pt.text = str(TimeInterp[idx])+','+str(PressureInterp[idx]) 
-       
+                Pt.text = str(TimeInterp[idx])+','+str(PressureInterp[idx])
+            
+            
     # Rewrite .feb file with paramter updates
     tree.write('./FEB_Files/' + DataDir + '.feb',xml_declaration=True,encoding="ISO-8859-1")
     
@@ -610,8 +653,13 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId
     # Define file of newly created .xplt file
     XPLTfilename = './FEB_Files/' + DataDir + '.xplt'
     
+    if ModelChoice == 'tiMR':
+        nDoms = nCls
+    else:
+        nDoms = nCls
+    
     # Get data from .xplt 
-    feb,file_size,nStates, mesh = GetFEB(XPLTfilename,False)
+    feb,file_size,nStates, mesh = GetFEB(XPLTfilename,nDoms,False)
     
     nNodes, nElems, nVar, StateTimes, VarNames, VarType = GetMeshInfo(feb)
     
@@ -717,16 +765,20 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId
                 
                 # Get point of intersection
                 ndotu = planeNorm.dot(PtNorm)
-                w = Pt - planePt
-                si = -planeNorm.dot(w) / ndotu
-                Intersect = np.add(np.add(w,np.multiply(si,PtNorm)),planePt)
-                
-                # Get distance between point and intersection
-                Res[i,j] =  np.linalg.norm(np.subtract(Pt,Intersect))
+                if abs(ndotu) < 1e-6:
+                    Residual[i,j] =  0.0
+                    raise RuntimeError("no intersection or line is within plane")
+                else:
+                    w = Pt - planePt
+                    si = -planeNorm.dot(w) / ndotu
+                    Intersect = np.add(np.add(w,np.multiply(si,PtNorm)),planePt)
+                    
+                    # Get distance between point and intersection
+                    Res[i,j] =  np.linalg.norm(np.subtract(Pt,Intersect))
             
     return Res.flatten()
     
-def RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice,FibChoice):
+def RunLS(DataDir,FListOrdered,FId,ref,CF,C,PressureChoice,ModelParChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice,FibChoice):
     '''
     Function to run the least squares 
     
@@ -736,6 +788,7 @@ def RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,Profil
     FId - Array of the ordered frame Ids, starting the reference frame
     ref - Reference remeshed file name
     CF - Id of the valve closing frame 
+    C - Initial Parameter estimation array
     PressureChoice - Choice to include pressure magnitude in least squares optimisation
     ModelParChoice - Choice to include model parameters in least squares optimisation
     ProfileChoice - Choice of pressure profile shape function
@@ -794,9 +847,9 @@ def RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,Profil
         STJ       = vtk_to_numpy(polydata.GetPointData().GetArray('STJ'))
         VAJ       = vtk_to_numpy(polydata.GetPointData().GetArray('VAJ'))
         Disp_Wall[X] = vtk_to_numpy(polydata.GetPointData().GetArray('Displacement_Wall'))
-        Circ[X]      = vtk_to_numpy(polydata.GetPointData().GetArray('Circumferential'))
-        Long[X]      = vtk_to_numpy(polydata.GetPointData().GetArray('Longtudinal'))
-        Norm[X]      = vtk_to_numpy(polydata.GetPointData().GetArray('Normal'))
+        Circ[X]      = vtk_to_numpy(polydata.GetPointData().GetArray('Circumferential_Pt'))
+        Long[X]      = vtk_to_numpy(polydata.GetPointData().GetArray('Longtudinal_Pt'))
+        Norm[X]      = vtk_to_numpy(polydata.GetPointData().GetArray('Normal_Pt'))
         
         Circ_Cls = np.zeros((nCls,3))
         Long_Cls = np.zeros((nCls,3))
@@ -820,84 +873,67 @@ def RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,Profil
             if VAJ[i] !=0.0:
                 Disp_Wall_VAJ[X][k] = Disp_Wall[X,i]
                 k+=1
-    
+        
     #Add choices to parameter array C and parameter ranges B_Min and B_Max
     if PressureChoice:
-        C = [-0.005332]
-        B_Min = [-1]
-        B_Max = [0]
+        B_Min = [0]
+        B_Max = [5]
     else:
-        C = []
         B_Min = []
         B_Max = []
         
     if ModelParChoice:
         if ModelChoice == 'MR':
-            C = np.concatenate((C,[1,10,10,10]))
             B_Min = np.concatenate((B_Min,[0,0,0,0]))
             B_Max = np.concatenate((B_Max,[100,1000,1000,1000]))
         if ModelChoice == 'tiMR':
-            C = np.concatenate((C,[10,10,10,10,10,10,10,10]))
             B_Min = np.concatenate((B_Min,[0,0,0,0,0,0,0,0]))
             B_Max = np.concatenate((B_Max,[1000,1000,1000,1000,1000,1000,1000,1000]))
         elif ModelChoice == 'Ogden':
-            C = np.concatenate((C,[1,10,10,10,10,10,10,10,10,10,10,10,10,10]))
             B_Min = np.concatenate((B_Min,[0,0,0,0,0,0,0,0,0,0,0,0,0,0]))
             B_Max = np.concatenate((B_Max,[100,100,100,100,100,100,100,100,100,100,100,100,100,100]))
         elif ModelChoice == 'Fung':
-            C = np.concatenate((C,[1,1,2,1.5,0.5,0.1,1,1.2,2,1.5,0.5,0.1]))
             B_Min = np.concatenate((B_Min,[1,0,0,0,0,0,0,0,0,0,0,0]))
             B_Max = np.concatenate((B_Max,[10,10,10,10,10,10,10,10,10,10,10,10]))
         elif ModelChoice == 'HGO':
-            C = np.concatenate((C,[1,2,1.5,0.2,0.1,1]))
-            B_Min = np.concatenate((B_Min,[0,0,0,0,0,0]))
-            B_Max = np.concatenate((B_Max,[10,10,10,0.3333,10,10]))
+            B_Min = np.concatenate((B_Min,[ 0,    0,  0,  0,   0,  0]))
+            B_Max = np.concatenate((B_Max,[10, 1000, 10, 50, 1/3, 100]))
     else:
-        C = np.concatenate((C,[]))
         B_Min = np.concatenate((B_Min,[]))
         B_Max = np.concatenate((B_Max,[]))
     
     if FibChoice and ModelChoice == 'tiMR':
-        C = np.concatenate((C,[0]))
         B_Min = np.concatenate((B_Min,[-pi/4]))
         B_Max = np.concatenate((B_Max,[pi/4]))
     else:
-        C = np.concatenate((C,[]))
         B_Min = np.concatenate((B_Min,[]))
         B_Max = np.concatenate((B_Max,[]))
         
     if ProfileChoice == 'Triangle':
-        C = np.concatenate((C,[1/2]))
         B_Min = np.concatenate((B_Min,[0]))
         B_Max = np.concatenate((B_Max,[1]))
     elif ProfileChoice == 'Step':
-        C = np.concatenate((C,[2/nF,5/nF]))
         B_Min = np.concatenate((B_Min,[0,0]))
         B_Max = np.concatenate((B_Max,[1,1]))
     elif ProfileChoice == 'SmoothStep':
-        C = np.concatenate((C,[2/nF, 5/nF, 50, 50]))
         B_Min = np.concatenate((B_Min,[0,0,0,0]))
         B_Max = np.concatenate((B_Max,[1,1,1000,1000]))
-    elif ProfileChoice == 'Bio':
-        C = np.concatenate((C,[]))
+    elif ProfileChoice == 'Virtual':
         B_Min = np.concatenate((B_Min,[]))
         B_Max = np.concatenate((B_Max,[]))
     elif ProfileChoice == 'Fourier':
-        C = np.concatenate((C,[3.0, 1.0, 0.0, 0.05]))
         B_Min = np.concatenate((B_Min,[-100,-100,-100,-100]))
         B_Max = np.concatenate((B_Max,[100,100,100,100]))
     elif ProfileChoice == 'Fitted':
-        PressureInterpStan = 0.0*np.ones(nF-2)
-        C = np.concatenate((C,PressureInterpStan))
         B_Min = np.concatenate((B_Min,np.zeros(nF-2)))
         B_Max = np.concatenate((B_Max,np.ones(nF-2)))
-    elif ProfileChoice == 'Windkess':
-        C = np.concatenate((C,[0.01,1, 1 ,  0.5]))
+    elif ProfileChoice == 'Windkessel':
         B_Min = np.concatenate((B_Min,[0,0,0,0]))
-        B_Max = np.concatenate((B_Max,[1,100,100,100]))
+        B_Max = np.concatenate((B_Max,[100,100,100,100]))
     
     #Create .feb file of VTK remeshed case
-    VTK2Feb_Func(DataDir,ref,nF,nCls,Disp_Wall_STJ,Disp_Wall_VAJ,STJ_Id,VAJ_Id,Circ_Cls,Long_Cls,ProfileChoice,ModelChoice,FibChoice,CF)
+    #VTK2Feb_Func(DataDir,ref,nF,Disp_Wall_STJ,Disp_Wall_VAJ  ,STJ_Id,VAJ_Id,Circ_Cls,Long_Cls,Norm[0],ProfileChoice,ModelChoice,FibChoice,CF)
+    VTK2Feb_Func(DataDir,ref,C,nF,Disp_Wall_STJ,Disp_Wall_VAJ,STJ_Id,VAJ_Id,Circ_Cls,Long_Cls,Norm[0],PressureChoice,ProfileChoice,ModelChoice,ModelParChoice,FibChoice,CF)
     
     #Choose to run Least Squares optimisation or just run febio simulation
     if RunLSChoice:
@@ -907,12 +943,11 @@ def RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,Profil
         os.system('/Applications/FEBioStudio/FEBioStudio.app/Contents/MacOS/febio3 -i '+ './FEB_Files/' + DataDir+'.feb')
         Cs = C
      
-    return Cs, Pts, Disp_Wall, Norm, Circ_Cls, Long_Cls, CellIds, nCls, STJ_Id, VAJ_Id, FId, nF
+    return Cs, Pts, Disp_Wall, Norm, Circ_Cls, Long_Cls, CellIds, nCls, STJ_Id, VAJ_Id
     
 if __name__=='__main__':
     
     #Get location of example script
-    d = './Strains/medial_meshes/tav02'
     DataDir = 'tav02'
     flist = glob.glob('./Remeshed/'+DataDir+'/*')
     nF = len(flist)
@@ -944,251 +979,398 @@ if __name__=='__main__':
     #Choose if data needs remeshed
     PressureChoice = False           # Choose to vary pressure magnitude
     ModelParChoice = True            # Choose to vary model parameters
-    RunLSChoice    = False           # Choose to run least Squares (or default/initial guess)
-    FibChoice      = True            # Choose to vary fiber direction, as an angle from the circumferential direction
-    ProfileChoice  = ['Windkess']    # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Bio', 'Fourier','Fitted'
-    ResChoice      = ['CellPlane']   # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
-    ModelChoice    = ['tiMR']        # Choose model from 'MR','tiMR','Ogden' and 'Fung',  'HGO'
+    RunLSChoice    = True            # Choose to run least Squares (or default/initial guess)
+    FibChoice      = False           # Choose to vary fiber direction, as an angle from the circumferential direction
+    ProfileChoice  = 'SetWindkessel' # Choose profile shapes, options are: 'Triangle', 'Step', 'SmoothStep', 'Virtual', 'Fourier','Fitted', 'Windkessel'
+    ResChoice      = 'CellPlane'     # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
+    ModelChoice    = 'MR'           # Choose model from 'MR','tiMR','Ogden' and 'Fung',  'HGO'
+    
+    InitParams = [[],[],[],[]]
+    
+    # Choose initial estimate of pressure magnitude
+    if PressureChoice:
+        InitParams[0] = [1]
+     
+    # Choose initial model parameters
+    if ModelParChoice:
+        if ModelChoice == 'MR':
+            InitParams[1] = [1,10,10,10]
+        if ModelChoice == 'tiMR':
+            InitParams[0] = [10,10,10,10,10,10,10,10]
+        elif ModelChoice == 'Ogden':
+            InitParams[0] = [1,10,10,10,10,10,10,10,10,10,10,10,10,10]
+        elif ModelChoice == 'Fung':
+            InitParams[0] = [1,1,2,1.5,0.5,0.1,1,1.2,2,1.5,0.5,0.1]
+        elif ModelChoice == 'HGO':     
+            InitParams[0] = [ 5,  415,  5, 28, 0.3, 10]
+      
+    # Define initial fiber angle
+    # Note if the chosen model is not 'tiMR' this parameter array will be made to be empty
+    if FibChoice and ModelChoice =='tiMR':
+        InitParams[2] = [0]
+
+    #Choose initial paramters for the pressure profile
+    if ProfileChoice == 'Triangle':
+        InitParams[3] = [0.5]
+    if ProfileChoice == 'Step':
+        InitParams[3] = [0.2, 0.5]
+    if ProfileChoice == 'SmoothStep':
+        InitParams[3] = [0.2, 0.5,50,50]
+    if ProfileChoice == 'Virtual':
+        InitParams[3] = []
+    if ProfileChoice == 'Fourier':
+        InitParams[3] = [3.0, 1.0, 0.0, 0.05]
+    if ProfileChoice == 'Fitted':
+        InitParams[3] = np.zeros(nF-2)
+    if ProfileChoice == 'Windkessel':
+        InitParams[3] = [11,1.4,14,0.004]
+    
+    
+    C = np.concatenate(InitParams, axis=0 )
+    
+    # If C is empty and RunLS is True, change to False
+    if C.size == 0 and RunLS:
+        print('Note: no parameters are being fitted, thus RunLSChoice is updated to be False')
+        RunLSChoice == False
+    if ModelParChoice and not RunLSChoice:
+        print('Note: Parameters are not being fitted, thus ModelParChoice is updated to be False')
+        ModelParChoice = False
     
     #Create empty array for params
-    Params = []
-    #loop round different choices
-    for PC in ProfileChoice:
-        for MC in ModelChoice:
-            for RC in ResChoice:
-                #Run least squares script
-                Out, Pts, Disp_Wall, Norm, Circ, Long, CellIds, nCls, STJ_Id, VAJ_Id, FId, nF = RunLS(DataDir,d,FListOrdered,FId,ref,CF,PressureChoice,ModelParChoice,PC,RunLSChoice,RC,MC,FibChoice)
-                
-                # Save new files
-                nStates,Residual = SaveFiles(DataDir,ref,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,PC,RunLSChoice,RC,MC,FibChoice,Out)
+    Params = [['Condition'],['Choice'],['Model Parameter Name'],['Parameter Value'],['Pressure Parameter Name'],['Parameter Value'],['Model Time'],['Model Pressure'],['Interpolated Time'],['Interpolated Pressure']]
+
+    #Run least squares script
+    Out, Pts, Disp_Wall, Norm, Circ, Long, CellIds, nCls, STJ_Id, VAJ_Id = RunLS(DataDir,FListOrdered,FId,ref,CF,C,PressureChoice,ModelParChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice,FibChoice)
     
-                if nF != nStates:
-                    print('The number of frames in original dataset: ', nF)
-                    print('The number of frames in simulated dataset: ', nStates)
-                else:
-                    print('The number of frames: ', nF)
-                    
-                # Start counting parameters, based on model choices
-                nC = 0
-                Conditions = ''
-                if PressureChoice:
-                    nP = 1
-                    ParamNames = 'Pressure Magnitude'
-                    ParamValues = Out[0]
-                    
-                    for i in range(nP):
-                        print(ParamNames[i],': ',ParamValues[i])
-                        Params[0].append(ParamNames[i+nC])
-                        Params[1].append(ParamValues[i+nC])
-                    nC +=1
-                    Conditions += 'PMagT_'
-                else:
-                    print('Pressure Magnitude is Default')
-                    Conditions += 'PMagF_'
-                    
-                if ModelParChoice:
-                    Conditions += 'ModelT_'
-                    if MC == 'MR':
-                        nP = 4
-                        ParamNames  = ['density','C1','C2','k']
-                        ParamValues = Out[nC:nC+nP+1]
-                        
-                        for i in range(nP):
-                            print(ParamNames[i],': ',ParamValues[i])
-                            Params[0].append(ParamNames[i+nC])
-                            Params[1].append(ParamValues[i+nC])
-                        nC +=4
-                        Conditions += 'MR_'
-                    if MC == 'tiMR':
-                        nP = 8
-                        ParamNames  = ['density','C1','C2','C3','C4','C5','k','lam_max']
-                        ParamValues = Out[nC:nC+nP+1]
-                        
-                        for i in range(nP):
-                            print(ParamNames[i],': ',ParamValues[i])
-                            Params[0].append(ParamNames[i+nC])
-                            Params[1].append(ParamValues[i+nC])
-                        nC +=8
-                        Conditions += 'tiMR_'
-                    elif MC == 'Ogden':
-                        nP = 14
-                        ParamNames  = ['density','k','c1','c2','c3','c4','c5','c6','m1','m2','m3','m4','m5','m6']
-                        ParamValues = Out[nC:nC+nP+1]
-                        
-                        for i in range(nP):
-                            print(ParamNames[i],': ',ParamValues[i])
-                            Params[0].append(ParamNames[i+nC])
-                            Params[1].append(ParamValues[i+nC])
-                            
-                        nC += 14 
-                        Conditions += 'Ogden_'
-                    elif MC == 'Fung':
-                        nP = 12
-                        ParamNames  = ['density','E1','E2','E3','G12','G23','G31','v12','v23','v31','c','k']
-                        ParamValues = Out[nC:nC+nP+1]
-                        
-                        for i in range(nP):
-                            print(ParamNames[i],': ',ParamValues[i])
-                            Params[0].append(ParamNames[i+nC])
-                            Params[1].append(ParamValues[i+nC])
-                        nC +=12
-                        Conditions += 'Fung_'
-                    elif MC == 'HGO':
-                        nP = 6
-                        ParamNames  = ['c','k1','k2','gamma','kappa','k']
-                        ParamValues = Out[nC:nC+nP+1]
-                        
-                        for i in range(nP):
-                            print(ParamNames[i],': ',ParamValues[i])
-                            Params[0].append(ParamNames[i+nC])
-                            Params[1].append(ParamValues[i+nC])
-                        nC+=6
-                        Conditions += 'HGO_'
-                else:
-                    print('Model parameters not optimised')
-                    Conditions += 'ModelF_'
-                
-                if RunLSChoice:
-                    Conditions += 'RunLST_'
-                else:
-                    Conditions += 'RunLSF_'
-                
-                    
-                if PC == 'Triangle':
-                    nP = 1
-                    ParamNames  = ['Pressure Peak']
-                    ParamValues = Out[nC:nC+nP+1]
-                    
-                    for i in range(nP):
-                        print(ParamNames[i],': ',ParamValues[i])
-                        Params[0].append(ParamNames[i+nC])
-                        Params[1].append(ParamValues[i+nC])
-                    nC +=1
-                elif PC == 'Step':
-                    nP = 2
-                    ParamNames  = ['Pressure Increase','Pressure Decrease']
-                    ParamValues = Out[nC:nC+nP+1]
-                    
-                    for i in range(nP):
-                        print(ParamNames[i],': ',ParamValues[i])
-                        Params[0].append(ParamNames[i+nC])
-                        Params[1].append(ParamValues[i+nC])
-                    nC +=2
-                elif PC == 'SmoothStep':
-                    nP = 4
-                    ParamNames  = ['Pressure Increase','Pressure Decrease','Increase Angle','Decrease Angle']
-                    ParamValues = Out[nC:nC+nP+1]
-                    
-                    for i in range(nP):
-                        print(ParamNames[i],': ',ParamValues[i])
-                        Params[0].append(ParamNames[i+nC])
-                        Params[1].append(ParamValues[i+nC])
-                    nC +=4
-                elif PC == 'Fourier':
-                    nP = 4
-                    ParamNames  = ['Fourier a1','Fourier a2','Fourier a3','Fourier a4']
-                    ParamValues = Out[nC:nC+nP+1]
-                    
-                    for i in range(nP):
-                        print(ParamNames[i],': ',ParamValues[i])
-                        Params[0].append(ParamNames[i+nC])
-                        Params[1].append(ParamValues[i+nC])
-                    nC +=4
-                elif PC == 'Fitted':
-                    nP = nF
-                    ParamNames  = ['Pressure P_'+ str(i) for i in range(nF)]
-                    ParamValues = Out[nC:nC+nP+1]
-                    
-                    for i in range(nP):
-                        print(ParamNames[i],': ',ParamValues[i])
-                        Params[0].append(ParamNames[i+nC])
-                        Params[1].append(ParamValues[i+nC])
-                    nC +=nF
-                elif PC == 'Windkess':
-                    nP = 4
-                    ParamNames  = ['qi_mag','Rp','Rd','Cp']
-                    ParamValues = Out[nC:nC+nP+1]
-                    
-                    for i in range(nP):
-                        print(ParamNames[i],': ',ParamValues[i])
-                        Params[0].append(ParamNames[i+nC])
-                        Params[1].append(ParamValues[i+nC])
-                    nC +=4
-                    
-                if FibChoice and MC == 'tiMR':
-                    nP = 1
-                    ParamNames  = ['Fiber Angle']
-                    ParamValues = Out[nC:nC+nP+1]
-                    
-                    for i in range(nP):
-                        print(ParamNames[i],': ',ParamValues[i])
-                        Params[0].append(ParamNames[i+nC])
-                        Params[1].append(ParamValues[i+nC])
-                    nC += 1
-                    Conditions += 'FibT_'
-                else:
-                    Conditions += 'FibF_'
-                    
-                Conditions += PC +'_'+ RC
-                    
-                with open('./NewFiles/'+ DataDir+'/'+Conditions+'/Parameters.csv','w') as result_file:
-                    wr = csv.writer(result_file, dialect='excel')
-                    for i in range(len(Params[0])):
-                        wr.writerow([Params[0][i],Params[1][i]])
-                    
-                if PC == 'Triangle':
-                    col = 'k'
-                elif PC == 'Step':
-                    col = 'r'
-                elif PC == 'SmoothStep':
-                    col = 'b'
-                elif PC == 'Bio':
-                    col = 'g'
-                elif PC == 'Fourier':
-                    col = 'm'
-                elif PC == 'Fitted':
-                    col = 'c'
-                elif PC == 'Windkess':
-                    col = 'y'
-                    
-                style = col 
-                
-                XPLTfilename = './FEB_Files/' + DataDir + '.xplt'
-                feb,file_size,nStates, mesh = GetFEB(XPLTfilename,False)
-                nNodes, nElems, nVar, StateTimes, VarNames, VarType = GetMeshInfo(feb)
+    # Save new files
+    nStates,Residual = SaveFiles(DataDir,ref,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice,FibChoice,Out)
+
+    if nF != nStates:
+        print('The number of frames in original dataset: ', nF)
+        print('The number of frames in simulated dataset: ', nStates)
+    else:
+        print('The number of frames: ', nF)
+            
+    # Start counting parameters, based on model choices
+    nC = 0
+    Conditions = ''
+    if PressureChoice:
+        Params[0].append('Pressure_Magnitude')
+        Params[1].append('True')
+        nP = 1
+        ParamNames = ['Pressure_Magnitude']
+        ParamValues = [Out[0]]
+        for i in range(nP):
+            print(ParamNames[i],': ',ParamValues[i])
+            Params[4].append(ParamNames[i])
+            Params[5].append(ParamValues[i])
+        nC +=1
+        Conditions += 'PMagT_'
+    else:
+        Params[0].append('Pressure_Magnitude')
+        Params[1].append('False')
+        Params[4].append('Pressure_Magnitude')
+        Params[5].append('N/A')
+        print('Pressure Magnitude is Default')
+        Conditions += 'PMagF_'
         
-                TimeData = (np.genfromtxt('TimeProfile.csv', delimiter=','))
-                PressureData = np.genfromtxt('PressureProfile.csv', delimiter=',')
-                TimeInterp = np.linspace(0,1,1001)
-                PressureInterp = np.interp(TimeInterp,TimeData,PressureData)
-                PressureInterpStan = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
-                
-                Time = np.zeros(nStates)
-                Pressure = np.zeros(nStates)
-                tree = et.parse('./FEB_Files/' + DataDir + '.feb')
-                Pressure_Mag = float(tree.find('Loads').find('surface_load').find('pressure').text)
-                for idx, Pt in enumerate(tree.find('LoadData').find('load_controller').find('points').findall("point")):
-                    for i in range(len(Pt.text)):
-                        if Pt.text[i] == ',':
-                            Time[idx] = float(Pt.text[0:i])
-                            Pressure[idx] = float(Pt.text[i+1:])
-                     
-                Residual_Mag = np.zeros(nF)
-                Residual_VectorMag = np.zeros((nF,nNodes))
-                for i in range(nF):
-                    for j in range(nNodes):
-                        Residual_VectorMag[i,j] = np.sqrt(np.sum(np.power(Residual[i,j],2)))
-                    Residual_Mag[i] = np.sum(Residual_VectorMag[i])
-                
-                plt.figure(1)
-                plt.plot(np.linspace(0,1,nF),Residual_Mag/nNodes,label = PC)
-                plt.xlabel('Time')
-                plt.ylabel('Relative Residual (per node)')
-                
-                if PC == 'Fitted':
-                    plt.figure(2)
-                    plt.plot(Time,np.multiply(Pressure,-Pressure_Mag),label = PC)
-                    plt.xlabel('Time')
-                    plt.ylabel('Pressure')
+    if ModelParChoice:
+        Conditions += 'ModelT_'
+        Params[0].append('Model_Parameters')
+        Params[1].append('True')
+        if ModelChoice == 'MR':
+            Params[0].append('Model')
+            Params[1].append('MR')
+            nP = 4
+            ParamNames  = ['density','C1','C2','k']
+            ParamValues = Out[nC:nC+nP+1]
+            for i in range(nP):
+                print(ParamNames[i],': ',ParamValues[i])
+                Params[2].append(ParamNames[i])
+                Params[3].append(ParamValues[i])
+            nC +=4
+        elif ModelChoice == 'tiMR':
+            Params[0].append('Model')
+            Params[1].append('tiMR')
+            nP = 8
+            ParamNames  = ['density','C1','C2','C3','C4','C5','k','lam_max']
+            ParamValues = Out[nC:nC+nP+1]
+            for i in range(nP):
+                print(ParamNames[i],': ',ParamValues[i])
+                Params[2].append(ParamNames[i])
+                Params[3].append(ParamValues[i])
+            nC +=8
+        elif ModelChoice == 'Ogden':
+            Params[0].append('Model')
+            Params[1].append('Ogden')
+            nP = 14
+            ParamNames  = ['density','k','c1','c2','c3','c4','c5','c6','m1','m2','m3','m4','m5','m6']
+            ParamValues = Out[nC:nC+nP+1]
+            for i in range(nP):
+                print(ParamNames[i],': ',ParamValues[i])
+                Params[2].append(ParamNames[i])
+                Params[3].append(ParamValues[i])
+            nC += 14 
+        elif ModelChoice == 'Fung':
+            Params[0].append('Model')
+            Params[1].append('Fung')
+            nP = 12
+            ParamNames  = ['density','E1','E2','E3','G12','G23','G31','v12','v23','v31','c','k']
+            ParamValues = Out[nC:nC+nP+1]
+            for i in range(nP):
+                print(ParamNames[i],': ',ParamValues[i])
+                Params[2].append(ParamNames[i])
+                Params[3].append(ParamValues[i])
+            nC +=12
+        elif ModelChoice == 'HGO':
+            Params[0].append('Model')
+            Params[1].append('HGO')
+            nP = 6
+            ParamNames  = ['c','k1','k2','gamma','kappa','k']
+            ParamValues = Out[nC:nC+nP+1]
+            for i in range(nP):
+                print(ParamNames[i],': ',ParamValues[i])
+                Params[2].append(ParamNames[i])
+                Params[3].append(ParamValues[i])
+            nC+=6
+    else:
+        print('Model parameters not optimised')
+        Conditions += 'ModelF_'
+        Params[0].append('Model_Parameters')
+        Params[1].append('FALSE')
+        if ModelChoice == 'MR':
+            Params[0].append('Model')
+            Params[1].append('MR')
+            ParamNames  = ['density','C1','C2','k']
+            ParamValues = [1,10,10,10]
+            for i in range(4):
+                Params[2].append(ParamNames[i])
+                Params[3].append(ParamValues[i])
+        elif ModelChoice == 'tiMR':
+            Params[0].append('Model')
+            Params[1].append('tiMR')
+            ParamNames  = ['density','C1','C2','C3','C4','C5','k','lam_max']
+            ParamValues = [10,10,10,10,10,10,10,10]
+            for i in range(8):
+                Params[2].append(ParamNames[i])
+                Params[3].append(ParamValues[i])
+        elif ModelChoice == 'Ogden':
+            Params[0].append('Model')
+            Params[1].append('Ogden')
+            ParamNames  = ['density','k','c1','c2','c3','c4','c5','c6','m1','m2','m3','m4','m5','m6']
+            ParamValues = [1,10,10,10,10,10,10,10,10,10,10,10,10,10]
+            for i in range(14):
+                Params[2].append(ParamNames[i])
+                Params[3].append(ParamValues[i])
+        elif ModelChoice == 'Fung':
+            Params[0].append('Model')
+            Params[1].append('Fung')
+            ParamNames  = ['density','E1','E2','E3','G12','G23','G31','v12','v23','v31','c','k']
+            ParamValues = [1,1,2,1.5,0.5,0.1,1,1.2,2,1.5,0.5,0.1]
+            for i in range(12):
+                Params[2].append(ParamNames[i])
+                Params[3].append(ParamValues[i])
+        elif ModelChoice == 'HGO':
+            Params[0].append('Model')
+            Params[1].append('HGO')
+            ParamNames  = ['c','k1','k2','gamma','kappa','k']
+            ParamValues = [ 5,  415,  5, 28, 0.3, 10]
+            for i in range(6):
+                Params[2].append(ParamNames[i])
+                Params[3].append(ParamValues[i])
+    
+    if RunLSChoice:
+        Params[0].append('Run_Least_Squares')
+        Params[1].append('TRUE')
+    else:
+        Params[0].append('Run_Least_Squares')
+        Params[1].append('FALSE')
+    
+    if ProfileChoice == 'Triangle':
+        nP = 1
+        ParamNames  = ['Pressure Peak']
+        ParamValues = Out[nC:nC+nP+1]
+        for i in range(nP):
+            print(ParamNames[i],': ',ParamValues[i])
+            Params[4].append(ParamNames[i])
+            Params[5].append(ParamValues[i])
+        nC +=1
+    elif ProfileChoice == 'Step':
+        nP = 2
+        ParamNames  = ['Pressure_Increase','Pressure_Decrease']
+        ParamValues = Out[nC:nC+nP+1]
+        for i in range(nP):
+            print(ParamNames[i],': ',ParamValues[i])
+            Params[4].append(ParamNames[i])
+            Params[5].append(ParamValues[i])
+        nC +=2
+    elif ProfileChoice == 'SmoothStep':
+        nP = 4
+        ParamNames  = ['Pressure_Increase','Pressure_Decrease','Increase_Angle','Decrease_Angle']
+        ParamValues = Out[nC:nC+nP+1]
+        for i in range(nP):
+            print(ParamNames[i],': ',ParamValues[i])
+            Params[4].append(ParamNames[i])
+            Params[5].append(ParamValues[i])
+        nC +=4
+    elif ProfileChoice == 'Fourier':
+        nP = 4
+        ParamNames  = ['Fourier_a1','Fourier_a2','Fourier_a3','Fourier_a4']
+        ParamValues = Out[nC:nC+nP+1]
+        for i in range(nP):
+            print(ParamNames[i],': ',ParamValues[i])
+            Params[4].append(ParamNames[i])
+            Params[5].append(ParamValues[i])
+        nC +=4
+    elif ProfileChoice == 'Fitted':
+        nP = nF-2
+        ParamNames  = ['Pressure_P_'+ str(i+1) for i in range(nF)]
+        ParamValues = Out[nC:nC+nP+1]
+        for i in range(nP):
+            print(ParamNames[i],': ',ParamValues[i])
+            Params[4].append(ParamNames[i])
+            Params[5].append(ParamValues[i])
+        nC +=nF-2
+    elif ProfileChoice == 'Windkessel':
+        nP = 4
+        ParamNames  = ['qi_mag','Rp','Rd','Cp']
+        ParamValues = Out[nC:nC+nP+1]
+        for i in range(nP):
+            print(ParamNames[i],': ',ParamValues[i])
+            Params[4].append(ParamNames[i])
+            Params[5].append(ParamValues[i])
+        nC +=4
+    elif ProfileChoice == 'SetTriangle':
+        nP = 1
+        ParamNames  = ['Pressure Peak']
+        ParamValues = [0.5]
+        for i in range(nP):
+            print(ParamNames[i],': ',ParamValues[i])
+            Params[4].append(ParamNames[i])
+            Params[5].append(ParamValues[i])
+    elif ProfileChoice == 'SetStep':
+        nP = 2
+        ParamNames  = ['Pressure_Increase','Pressure_Decrease']
+        ParamValues = [0.2,0.5]
+        for i in range(nP):
+            print(ParamNames[i],': ',ParamValues[i])
+            Params[4].append(ParamNames[i])
+            Params[5].append(ParamValues[i])
+    elif ProfileChoice == 'SetSmoothStep':
+        nP = 4
+        ParamNames  = ['Pressure_Increase','Pressure_Decrease','Increase_Angle','Decrease_Angle']
+        ParamValues = [0.2,0.5,50,50]
+        for i in range(nP):
+            print(ParamNames[i],': ',ParamValues[i])
+            Params[4].append(ParamNames[i])
+            Params[5].append(ParamValues[i])
+    elif ProfileChoice == 'SetFourier':
+        nP = 4
+        ParamNames  = ['Fourier_a1','Fourier_a2','Fourier_a3','Fourier_a4']
+        ParamValues = [3.0,1.0,0.0,0.05]
+        for i in range(nP):
+            print(ParamNames[i],': ',ParamValues[i])
+            Params[4].append(ParamNames[i])
+            Params[5].append(ParamValues[i])
+    elif ProfileChoice == 'SetFitted':
+        nP = nF-2
+        ParamNames  = ['Pressure_P_'+ str(i) for i in range(nF)]
+        ParamValues = np.zeros(nF)
+        for i in range(nP):
+            print(ParamNames[i],': ',ParamValues[i])
+            Params[4].append(ParamNames[i])
+            Params[5].append(ParamValues[i])
+    elif ProfileChoice == 'SetWindkessel':
+        nP = 4 
+        ParamNames  = ['qi_mag','Rp','Rd','Cp']
+        ParamValues = [11,1.4,14,0.004]
+        for i in range(nP):
+            print(ParamNames[i],': ',ParamValues[i])
+            Params[4].append(ParamNames[i])
+            Params[5].append(ParamValues[i])
+        
+    # Define Timesteps
+    TimeData = np.linspace(0,1,nF)
+    # Get Pressure Profile
+    PressureData = GetPressure(ParamValues,0,nF,CF,ProfileChoice,TimeData)
+    for i in range(len(TimeData)):
+        Params[6].append(TimeData[i])
+        Params[7].append(PressureData[i])
+        
+    # Get Interpolated Data
+    TimeInterp = np.linspace(0,1,101)
+    PressureInterp = np.interp(TimeInterp,TimeData,PressureData)
+    PressureInterpStan = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
+    
+    for i in range(len(TimeInterp)):
+        Params[8].append(TimeInterp[i])
+        Params[9].append(PressureInterp[i])
+    
+    # Save Pressure Profile Choice
+    Params[0].append('Pressure_Profile')
+    Params[1].append(ProfileChoice)
+        
+    if FibChoice and ModelChoice == 'tiMR':
+        Params[0].append('Include_Fiber')
+        Params[1].append('True')
+        nP = 1
+        ParamNames  = ['Fiber_Angle']
+        ParamValues = Out[nC:nC+nP+1]
+        
+        for i in range(nP):
+            print(ParamNames[i],': ',ParamValues[i])
+            Params[4].append(ParamNames[i])
+            Params[5].append(ParamValues[i])
+        nC += 1
+        Conditions += 'FibT_'
+    else:
+        Params[0].append('Include_Fiber')
+        Params[1].append('False')
+        Conditions += 'FibF_'
+        
+    Conditions +=  ResChoice
+     
+    # Save Pressure Profile Choice
+    Params[0].append('Residual_Choice')
+    Params[1].append(ResChoice)
+    
+    if RunLSChoice:
+        RunDir = 'RunLS'
+    else:
+        RunDir = 'RunDefault'
+        
+    with open('./NewFiles/'+ DataDir+'/'+ModelChoice+'/'+RunDir + '/' + ProfileChoice+ '/' + Conditions+'/Parameters.csv','w') as result_file:
+        wr = csv.writer(result_file, dialect='excel')
+        for values in zip_longest(*Params):
+            wr.writerow(values)
+    
+    XPLTfilename = './FEB_Files/' + DataDir + '.xplt'
+
+    if ModelChoice == 'tiMR':
+        nDoms = nCls
+    else:
+        nDoms = nCls
+        
+    feb,file_size,nStates, mesh = GetFEB(XPLTfilename,nDoms,False)
+    nNodes, nElems, nVar, StateTimes, VarNames, VarType = GetMeshInfo(feb)
+    
+    columns_data = zip_longest(*Params)
+        
+    with open('./NewFiles/'+ DataDir+'/'+ModelChoice+'/'+RunDir + '/' + ProfileChoice+ '/' + Conditions+'/Parameters.csv','w') as result_file:
+        wr = csv.writer(result_file, dialect='excel')
+        wr.writerows(columns_data)
+         
+    Residual_Mag = np.zeros(nF)
+    Residual_VectorMag = np.zeros((nF,nNodes))
+    for i in range(nF):
+        for j in range(nNodes):
+            Residual_VectorMag[i,j] = np.sqrt(np.sum(np.power(Residual[i,j],2)))
+        Residual_Mag[i] = np.sum(Residual_VectorMag[i])
+    
+    plt.figure(1)
+    plt.plot(np.linspace(0,1,nF),Residual_Mag/nNodes,label = ProfileChoice)
+    plt.xlabel('Time')
+    plt.ylabel('Relative Residual (per node)')
+    
     plt.show()
         

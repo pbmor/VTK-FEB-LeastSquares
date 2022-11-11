@@ -213,7 +213,6 @@ def CALL_NODE_COORDS(fid,node):
     for i in range(nNodes):
         coords = np.fromfile(fid,dtype=np.float32,count=nDim)
         
-    print(len(coords))
     return coords
 
 def CALL_STATE_TIME(fid,node):
@@ -235,6 +234,7 @@ def CALL_VARIABLE_DATA(fid,node):
     elif node.parent.parent.name == 'DOMAIN_DATA':
         nPts = node.path[0].children[1].children[1].children[0].children[0].children[2].ELEMENTS
         ItemType = node.path[0].children[0].children[1].children[1].children[VarId].children[0].ITEM_TYPE
+        nDims = len(node.path[0].children[1].children[1].children)
     
     if ItemType == 0:
         DataSize = 1
@@ -259,7 +259,7 @@ def CALL_VARIABLE_DATA(fid,node):
             else:
                 Ids = []
                 Data = []
-                for _ in range(1064):
+                for _ in range(nDims):
                     Ids.append(np.fromfile(fid,dtype=np.uint32,count=1))
                     chunk = np.fromfile(fid,dtype=np.float32,count=DataSize)
                     for i in range(len(chunk))[1:len(chunk)]:
@@ -388,7 +388,7 @@ def GetMeshInfo(feb):
     return nNodes, nElems, nVar, StateTimes, VarNames, VarType
 
 
-def GetFEB(filename, Tree):
+def GetFEB(filename,nDoms, Tree):
     
     feb = xplt_node('FEB')
     feb.set()
@@ -397,7 +397,6 @@ def GetFEB(filename, Tree):
     state_section = []
     state_section.append(xplt_node('STATE_SECTION',parent=feb))
     
-    xpltFile = filename
     fid = open(filename, 'rb')
     fid.seek(0,2)
     file_size=fid.tell()
@@ -461,27 +460,36 @@ def GetFEB(filename, Tree):
     node_header = xplt_node('NODE_HEADER',parent=node_section)
     node_coords = xplt_node('NODE_COORDS',parent=node_section)
     
-    if filename == './FEB_Files/tav02.xplt':
+    if nDoms > 1:
         domains = []
-        for _ in range(1064):
+        for _ in range(nDoms):
             domains.append(xplt_node('DOMAIN',parent=domain_section))
     else:
         domains = [xplt_node('DOMAIN',parent=domain_section)]
         
     nodes = xplt_node('NODES',parent=node_header)
     dim   = xplt_node('DIM',parent=node_header)
-    # name  = xplt_node('NAME',parent=node_header) 
+    name  = xplt_node('NAME',parent=node_header) 
     
     for domain in domains:
+        
         domain_header = xplt_node('DOMAIN_HEADER',parent=domain)
     
         elem_type = xplt_node('ELEM_TYPE',parent=domain_header)
         part_id = xplt_node('PART_ID',parent=domain_header)
         elements = xplt_node('ELEMENTS',parent=domain_header)
+        name = xplt_node('NAME',parent=domain_header)
         elem_type.set()
         elements.set()
+        name.set()
         
         element_list = xplt_node('ELEMENT_LIST',parent=domain)
+        # element_list.set()
+
+    surface = xplt_node('SURFACE',parent=surface_section)
+    
+    surface_header = xplt_node('SURFACE_HEADER',parent=surface_section)
+    
     
     state_header = []
     state_unknown2 = []

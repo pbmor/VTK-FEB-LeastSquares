@@ -1,6 +1,7 @@
 import vtk
 import numpy as np
 import os
+import glob
 from vtk.util.numpy_support import vtk_to_numpy
 
 def Remesh_All(DataDir, original_filename):
@@ -40,7 +41,7 @@ def Remesh_All(DataDir, original_filename):
     
     #correct the thickness at the ends
     thick = vtk_to_numpy(in_pd.GetArray('Thickness'))
-    thick[thick<0.31] = np.mean(thick[thick>0.31])
+    thick[thick<0.51] = np.mean(thick[thick>0.51])
     id_map = {}
     
     #create an unstructured grid object for the extruded version of original vtk file
@@ -48,7 +49,7 @@ def Remesh_All(DataDir, original_filename):
     ugo = vtk.vtkUnstructuredGrid()
     ugo.Allocate()
     out_pd = ugo.GetPointData()
-    out_pd.CopyAllocate(in_pd);
+    out_pd.CopyAllocate(in_pd)
     scale = 2.
     
     for i in range(num_pts):
@@ -86,7 +87,7 @@ def Remesh_All(DataDir, original_filename):
     resample = vtk.vtkResampleWithDataSet()
     resample.AddInputData(polydata2)
     resample.SetComputeTolerance(False)
-    resample.SetTolerance(0.01)
+    resample.SetTolerance(1.0)
     resample.SetPassFieldArrays(True)
     resample.SetPassCellArrays(True)
     resample.SetPassPointArrays(True)
@@ -94,14 +95,13 @@ def Remesh_All(DataDir, original_filename):
     resample.SetSourceData(ugo)
     resample.Update()
     
-    #write the output
-    path = os.path.join('Remeshed/',DataDir)
+    # write the output
+    path = './Remeshed/'+DataDir+'/'
     if not os.path.exists(path):
       # Create a new directory because it does not exist 
       os.mkdir(path)
       
-    NewFilename = os.path.join('Remeshed/',DataDir,os.path.split(os.path.splitext(original_filename)[0])[1] + '.vtk')
-    RemeshFilename = os.path.split(os.path.splitext(original_filename)[0])[1] + '.vtk'
+    NewFilename = 'Remeshed/'+DataDir+'/'+os.path.split(os.path.splitext(original_filename)[0])[1] + '.vtk'
     writer = vtk.vtkPolyDataWriter()
     writer.SetInputData(resample.GetOutput())
     writer.SetFileName(NewFilename)
@@ -130,8 +130,10 @@ def Remesh_All(DataDir, original_filename):
     for i in range(num_pts):
         point = np.array(pdi.GetPoint(i))
         normal = np.array(normals.GetTuple3(i))
-        j = new_pts.InsertNextPoint(point+normal*thick[i]/2.)
-        new_pts.SetPoint(i,point-normal*thick[i]/2.)
+        # j = new_pts.InsertNextPoint(point+normal*thick[i]/2.)
+        # new_pts.SetPoint(i,point-normal*thick[i]/2.)
+        j = new_pts.InsertNextPoint(point+normal*thick[i])
+        new_pts.SetPoint(i,point-normal*thick[i])
         out_pd.CopyData(in_pd, i, i)
         out_pd.CopyData(in_pd, i, j)
         id_map[i] = j
@@ -155,5 +157,21 @@ def Remesh_All(DataDir, original_filename):
     writer.SetFileName('extrude.vtk')
     writer.Write()
     
-    return RemeshFilename
+    return 
 
+
+if __name__=='__main__':
+
+    # Code to run through all data sets
+    List_of_Subdirectories = sorted(glob.glob('./medial_meshes/*'))
+    
+    # List_of_Subdirectories = '../RunVTK/Strains/medial_meshes/bav02'
+    ND = len(List_of_Subdirectories)
+    
+    CommonOfDir = os.path.commonprefix(List_of_Subdirectories)
+    for d in List_of_Subdirectories:
+        DataDir = d.replace(CommonOfDir,'')
+        OriginalFiles = sorted(glob.glob('./medial_meshes/'+DataDir+'/medial meshes - propagated from reference/with point data - recon from propagated boundary meshes/*'))
+        for OF in OriginalFiles:
+            if OF[-4:]==".vtp"or OF[-4:]==".vtk":
+                Remesh_All(DataDir,OF)
