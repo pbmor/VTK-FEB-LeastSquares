@@ -1025,7 +1025,6 @@ if __name__=='__main__':
     if ProfileChoice == 'Windkessel':
         InitParams[3] = [11,1.4,14,0.004]
     
-    
     C = np.concatenate(InitParams, axis=0 )
     
     # If C is empty and RunLS is True, change to False
