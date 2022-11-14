@@ -7,12 +7,102 @@ from math import cos, sin, pi
 from scipy.integrate import odeint
 from scipy.interpolate import interp1d
 
-def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VAJ_Id,Circ,Long,ProfileChoice,ModelChoice,FiberChoice,CF):
+def VTK2Feb_Func(DataDir,Fname,C,nF,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VAJ_Id,Circ,Long,Norm,PressureChoice,ProfileChoice,ModelChoice,ModelParChoice,FibChoice,CF):
+    '''
+    This script contains the function VTK2Feb_Func that constructs the .feb 
+    file for Febio, determined by the choices made, specifically the pressure 
+    profile and constitutive model.
+
+
+    DataDir        - The data set name.
+    Fname          - The filename of the frame that will define the mesh, 
+                     usually chosen to be the reference frame.
+    C              - Array of parameters
+    nF             - The number of frames.
+    STJ_WallMotion - The displacement of the STJ points relative to the root 
+                     centre (i.e. overall root movement is not included).
+    VAJ_WallMotion - The displacement of the VAJ points relative to the root 
+                     centre (i.e. overall root movement is not included).
+    STJ_Id         - The point ids of the STJ points.
+    VAJ_Id         - The point ids of the VAJ points.
+    Circ           - An array of the circumferential vectors of each node.
+    Long           - An array of the longitudinal vectors of each node.
+    Norm           - An array of the normal vectors of each node.
+    ProfileChoice  - The choice for pressure profile.
+    ModelChoice    - The choice for model.
+    FiberChoice    - The choice of whether the fibers are included.
+    CF             - The frame in which the valve closes.
+
+    '''
+    # Count number of parameters
+    nC = 0    
+    
+    # Choose initial estimate of pressure magnitude
+    if PressureChoice:
+        PressureMag = C[0]
+        nC =+ 1
+    else:
+        PressureMag = -1
+     
+    # Choose initial model parameters
+    if ModelParChoice:
+        if ModelChoice == 'MR':
+            ModelPar = C[nC:nC+4]
+            nC += 4
+        if ModelChoice == 'tiMR':
+            ModelPar = C[nC:nC+8]
+            nC += 8
+        elif ModelChoice == 'Ogden':
+            ModelPar = C[nC:nC+14]
+            nC += 14
+        elif ModelChoice == 'Fung':
+            ModelPar = C[nC:nC+12]
+            nC += 12
+        elif ModelChoice == 'HGO':     
+            ModelPar = C[nC:nC+6]
+    else:   
+        if ModelChoice == 'MR':
+            ModelPar = [1,10,10,10]
+            nC +=4
+        if ModelChoice == 'tiMR':
+            ModelPar = [10,10,10,10,10,10,10,10]
+        elif ModelChoice == 'Ogden':
+            ModelPar = [1,10,10,10,10,10,10,10,10,10,10,10,10,10]
+        elif ModelChoice == 'Fung':
+            ModelPar = [1,1,2,1.5,0.5,0.1,1,1.2,2,1.5,0.5,0.1]
+        elif ModelChoice == 'HGO':     
+            ModelPar = [ 5,  415,  5, 28, 0.3, 10]
+            
+      
+    # Define initial fiber angle
+    # Note if the chosen model is not 'tiMR' this parameter array will be made to be empty
+    if FibChoice and ModelChoice =='tiMR':
+        FiberAng = C[nC]
+        nC +=1
+    else:
+        FiberAng = [0]
+        
+    #Choose initial paramters for the pressure profile
+    if ProfileChoice == 'Triangle':
+        PressurePar = [0.5]
+    if ProfileChoice == 'Step':
+        PressurePar = [0.2, 0.5]
+    if ProfileChoice == 'SmoothStep':
+        PressurePar = [0.2, 0.5,50,50]
+    if ProfileChoice == 'Virtual':
+        PressurePar = []
+    if ProfileChoice == 'Fourier':
+        PressurePar = [3.0, 1.0, 0.0, 0.05]
+    if ProfileChoice == 'Fitted':
+        PressurePar = np.zeros(nF-2)
+    if ProfileChoice == 'Windkessel':
+        PressurePar = [11,1.4,14,0.004]
+    
     
     TimeInterp = np.linspace(0,1,nF)
     
     if ProfileChoice == 'Triangle':
-        Peak = 1/2
+        Peak = PressurePar[0]
         PressureInterp = np.zeros(nF)
         Line_A = (1/Peak)*TimeInterp
         Line_B = (-1/(1 - Peak))*TimeInterp + 1/(1-Peak)
@@ -21,36 +111,36 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
                 PressureInterp[i] = Line_A[i]
             else:
                 PressureInterp[i] = Line_B[i]
-        PressureInterpStan = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
+        PressureInterp = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
     elif ProfileChoice == 'Step':
         PressureInterp = np.zeros(nF)
         for i in range(nF):
-            if (TimeInterp[i] >=2/nF) and (TimeInterp[i] <= 5/nF):
+            if (TimeInterp[i] >=PressurePar[0]) and (TimeInterp[i] <= PressurePar[1]):
                 PressureInterp[i] = 1.0
-        PressureInterpStan = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
+        PressureInterp = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
     elif ProfileChoice == 'SmoothStep':
         PressureInterp = np.zeros(nF)
         for i in range(nF):
-            PressureInterp[i] = (1/(1+e(-50*(TimeInterp[i]-2/nF))))*(1-1/(1+e(-50*(TimeInterp[i]-5/nF))))
-        PressureInterpStan = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
-    elif ProfileChoice == 'Bio':
+            PressureInterp[i] = (1/(1+e(-PressurePar[2]*(TimeInterp[i]-PressurePar[0]))))*(1-1/(1+e(-PressurePar[3]*(TimeInterp[i]-PressurePar[1]))))
+        PressureInterp = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
+    elif ProfileChoice == 'Virtual':
         TimeData = (genfromtxt('TimeProfile.csv', delimiter=','))
         PressureData = genfromtxt('PressureProfile.csv', delimiter=',')
         PressureInterp = np.interp(TimeInterp,TimeData,PressureData)
-        PressureInterpStan = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
+        PressureInterp = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
     elif ProfileChoice == 'Fourier':
         PressureInterp = np.zeros(nF)
         x=TimeInterp
         for i in range(nF):
-            PressureInterp[i] = 3.0*sin(pi*x[i])+1.0*sin(2*pi*x[i])+0.0*sin(4*pi*x[i])+0.05*sin(8*pi*x[i])
-        PressureInterpStan = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
+            PressureInterp[i] = PressurePar[0]*sin(pi*x[i])+PressurePar[1]*sin(2*pi*x[i])+PressurePar[2]*sin(4*pi*x[i])+PressurePar[3]*sin(8*pi*x[i])
+        PressureInterp = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
     elif ProfileChoice == 'Fitted':
-        PressureInterpStan = 0.0*np.ones(nF)
-    elif ProfileChoice == 'Windkess':
-        qi_mag = 1
-        Rp = 1
-        Rd = 1
-        Cp  = 1
+        PressureInterp = 0.0*np.ones(nF)
+    elif ProfileChoice == 'Windkessel':
+        qi_mag = PressurePar[0]
+        Rp = PressurePar[1]
+        Rd = PressurePar[2]
+        Cp  = PressurePar[3]
         t = np.linspace(0, 100, 5001)
         qi = []
         CFt = CF/nF
@@ -67,14 +157,48 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
         last = (t>=99)*(t<100)
         Pressure = Rp*qi+Rd*qo
         PressureInterp = np.interp(np.linspace(99,100,nF),t[last],Pressure[last])
-        PressureInterpStan = np.subtract(PressureInterp,PressureInterp[0])
         
     elif ProfileChoice[0:3] == 'Set':
-        if ProfileChoice[3:] == 'Windkess':
-            qi_mag = 1.08833313e+01
-            Rp     = 1.39329372e+00
-            Rd     = 1.43243521e+01
-            Cp     = 4.19180868e-03
+        if ProfileChoice[3:] == 'Triangle':
+            Peak = 0.5
+            PressureInterp = np.zeros(nF)
+            Line_A = (1/Peak)*TimeInterp
+            Line_B = (-1/(1 - Peak))*TimeInterp + 1/(1-Peak)
+            for i in range(nF):
+                if TimeInterp[i] <=Peak:
+                    PressureInterp[i] = Line_A[i]
+                else:
+                    PressureInterp[i] = Line_B[i]
+            PressureInterp = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
+        elif ProfileChoice[3:] == 'Step':
+            PressureInterp = np.zeros(nF)
+            for i in range(nF):
+                if (TimeInterp[i] >=0.2) and (TimeInterp[i] <= 0.5):
+                    PressureInterp[i] = 1.0
+            PressureInterp = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
+        elif ProfileChoice[3:] == 'SmoothStep':
+            PressureInterp = np.zeros(nF)
+            for i in range(nF):
+                PressureInterp[i] = (1/(1+e(-50*(TimeInterp[i]-0.2))))*(1-1/(1+e(-50*(TimeInterp[i]-0.5))))
+            PressureInterp = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
+        elif ProfileChoice[3:] == 'Virtual':
+            TimeData = (genfromtxt('TimeProfile.csv', delimiter=','))
+            PressureData = genfromtxt('PressureProfile.csv', delimiter=',')
+            PressureInterp = np.interp(TimeInterp,TimeData,PressureData)
+            PressureInterp = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
+        elif ProfileChoice[3:] == 'Fourier':
+            PressureInterp = np.zeros(nF)
+            x=TimeInterp
+            for i in range(nF):
+                PressureInterp[i] = 3.0*sin(pi*x[i])+1.0*sin(2*pi*x[i])+0.0*sin(4*pi*x[i])+0.05*sin(8*pi*x[i])
+            PressureInterp = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
+        elif ProfileChoice[3:] == 'Fitted':
+            PressureInterp = 0.0*np.ones(nF)
+        elif ProfileChoice[3:] == 'Windkessel':
+            qi_mag = 11.0
+            Rp     = 1.4
+            Rd     = 14
+            Cp     = 0.004
             t = np.linspace(0, 100, 5001)
             qi = []
             CFt = CF/nF
@@ -92,7 +216,9 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
             last = (t>=99)*(t<100)
             Pressure = Rp*qi+Rd*qo
             PressureInterp = np.interp(np.linspace(99,100,nF),t[last],Pressure[last])
-            PressureInterpStan = np.subtract(PressureInterp,PressureInterp[0])
+    
+    PressureInterp = np.subtract(PressureInterp,min(PressureInterp))
+    PressureInterp = np.divide(PressureInterp,max(PressureInterp))
     
     reader = vtk.vtkPolyDataReader()
     reader.SetFileName(Fname)
@@ -105,6 +231,7 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
     pts = pdi.GetPoints()
     in_pd = pdi.GetPointData()
     X = vtk_to_numpy(pts.GetData())
+    thick = vtk_to_numpy(in_pd.GetArray('Thickness'))
     
     NewFebName = './FEB_Files/' + DataDir+'.feb'
     f=open(NewFebName,'w')
@@ -118,8 +245,8 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
     f.write('\t<Control>\n')
     f.write('\t\t<analysis>STATIC</analysis>\n')
     f.write('\t\t<time_steps>'+str(nF)+'</time_steps>\n')
-    f.write('\t\t<step_size>'+str(1/nF)+'</step_size>\n')
-    f.write('\t\t<plot_level>PLOT_MUST_POINTS</plot_level>\n')
+    f.write('\t\t<step_size>'+str(1/(nF-1))+'</step_size>\n')
+    # f.write('\t\t<plot_level>PLOT_MUST_POINTS</plot_level>\n')
     f.write('\t\t<solver>\n')
     f.write('\t\t\t<max_refs>15</max_refs>\n')
     f.write('\t\t\t<max_ups>10</max_ups>\n')
@@ -133,10 +260,10 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
     f.write('\t\t\t<qnmethod>BFGS</qnmethod>\n')
     f.write('\t\t\t<rhoi>0</rhoi>\n')
     f.write('\t\t</solver>\n')
+
     f.write('\t\t<time_stepper>\n')
-    f.write('\t\t\t<dtmin>'+str(0.9*1/nF)+'</dtmin>\n')
-    # f.write('\t\t\t<dtmax>'+str(1.1*1/nF)+'</dtmax>\n')
-    f.write('\t\t\t<dtmax lc="1">'+str(1/nF)+'</dtmax>\n')
+    f.write('\t\t\t<dtmin>'+str(0.9*1/(nF-1))+'</dtmin>\n')
+    f.write('\t\t\t<dtmax>'+str(1.1*1/nF)+'</dtmax>\n')
     f.write('\t\t\t<max_retries>5</max_retries>\n')
     f.write('\t\t\t<opt_iter>10</opt_iter>\n')
     f.write('\t\t</time_stepper>\n')
@@ -154,24 +281,24 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
     f.write('\t<Material>\n')
     if ModelChoice == 'MR':
         f.write('\t\t<material id="1" name="Material1" type="Mooney-Rivlin">\n')
-        f.write('\t\t\t<density>0.0</density>\n')
-        f.write('\t\t\t<c1>10</c1>\n')
-        f.write('\t\t\t<c2>10</c2>\n')
-        f.write('\t\t\t<k>10</k>\n')
+        f.write(f'\t\t\t<density>{ModelPar[0]}</density>\n')
+        f.write(f'\t\t\t<c1>{ModelPar[1]}</c1>\n')
+        f.write(f'\t\t\t<c2>{ModelPar[2]}</c2>\n')
+        f.write(f'\t\t\t<k>{ModelPar[3]}</k>\n')
         f.write('\t\t</material>\n') 
     elif ModelChoice =='tiMR':
-        for i in range(nCells):
+        for i in range(num_cells):
             f.write(f'\t\t<material id="{i+1}" name="Material{i+1}" type="2D trans iso Mooney-Rivlin">\n') 
-            f.write('\t\t\t<density>10.0</density>\n') 
-            f.write('\t\t\t<c1>14.0</c1>\n') 
-            f.write('\t\t\t<c2>0.0</c2>\n') 
-            f.write('\t\t\t<c3>2.0</c3>\n') 
-            f.write('\t\t\t<c4>60.0</c4>\n') 
-            f.write('\t\t\t<c5>600.0</c5>\n') 
-            f.write('\t\t\t<k>100.0</k>\n') 
+            f.write(f'\t\t\t<density>{ModelPar[0]}</density>\n') 
+            f.write(f'\t\t\t<c1>{ModelPar[1]}</c1>\n') 
+            f.write(f'\t\t\t<c2>{ModelPar[2]}</c2>\n') 
+            f.write(f'\t\t\t<c3>{ModelPar[3]}</c3>\n') 
+            f.write(f'\t\t\t<c4>{ModelPar[4]}</c4>\n') 
+            f.write(f'\t\t\t<c5>{ModelPar[5]}</c5>\n') 
+            f.write(f'\t\t\t<k>{ModelPar[6]}</k>\n') 
             f.write('\t\t\t<lam_max>1.0</lam_max>\n') 
-            if FiberChoice:
-                theta = 0
+            if FibChoice:
+                theta = FiberAng
                 C_prime = np.cross(np.cross(Circ[i],Long[i]),Circ[i])
                 New = np.dot(cos(theta),Circ[i]) + np.dot(sin(theta),C_prime)
                 f.write(f'\t\t\t<fiber type="vector">{New[0]},{New[1]},{New[2]}</fiber>\n') 
@@ -183,44 +310,44 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
             f.write('\t\t</material>\n') 
     elif ModelChoice =='Ogden':
         f.write('\t\t<material id="1" name="Material1" type="Ogden">\n')
-        f.write('\t\t\t<density>10</density>\n')
-        f.write('\t\t\t<k>10</k>\n')
-        f.write('\t\t\t<c1>10</c1>\n')
-        f.write('\t\t\t<c2>10</c2>\n')
-        f.write('\t\t\t<c3>10</c3>\n')
-        f.write('\t\t\t<c4>10</c4>\n')
-        f.write('\t\t\t<c5>10</c5>\n')
-        f.write('\t\t\t<c6>10</c6>\n')
-        f.write('\t\t\t<m1>10</m1>\n')
-        f.write('\t\t\t<m2>10</m2>\n')
-        f.write('\t\t\t<m3>10</m3>\n')
-        f.write('\t\t\t<m4>10</m4>\n')
-        f.write('\t\t\t<m5>10</m5>\n')
-        f.write('\t\t\t<m6>10</m6>\n')
+        f.write(f'\t\t\t<density>{ModelPar[0]}<</density>\n')
+        f.write(f'\t\t\t<k>{ModelPar[1]}</k>\n')
+        f.write(f'\t\t\t<c1>{ModelPar[2]}</c1>\n')
+        f.write(f'\t\t\t<c2>{ModelPar[3]}</c2>\n')
+        f.write(f'\t\t\t<c3>{ModelPar[4]}</c3>\n')
+        f.write(f'\t\t\t<c4>{ModelPar[5]}</c4>\n')
+        f.write(f'\t\t\t<c5>{ModelPar[6]}</c5>\n')
+        f.write(f'\t\t\t<c6>{ModelPar[7]}</c6>\n')
+        f.write(f'\t\t\t<m1>{ModelPar[8]}</m1>\n')
+        f.write(f'\t\t\t<m2>{ModelPar[9]}</m2>\n')
+        f.write(f'\t\t\t<m3>{ModelPar[10]}</m3>\n')
+        f.write(f'\t\t\t<m4>{ModelPar[11]}</m4>\n')
+        f.write(f'\t\t\t<m5>{ModelPar[12]}</m5>\n')
+        f.write(f'\t\t\t<m6>{ModelPar[13]}</m6>\n')
         f.write('\t\t</material>\n')
     elif ModelChoice =='Fung':
         f.write('\t\t<material id="1" name="Material1" type="Fung orthotropic">\n')
-        f.write('\t\t\t<density>1</density>\n')
-        f.write('\t\t\t<E1>1</E1>\n')
-        f.write('\t\t\t<E2>1</E2>\n')
-        f.write('\t\t\t<E3>1</E3>\n')
-        f.write('\t\t\t<G12>1</G12>\n')
-        f.write('\t\t\t<G23>1</G23>\n')
-        f.write('\t\t\t<G31>1</G31>\n')
-        f.write('\t\t\t<v12>1</v12>\n')
-        f.write('\t\t\t<v23>1</v23>\n')
-        f.write('\t\t\t<v31>1</v31>\n')
-        f.write('\t\t\t<c>1</c>\n')
-        f.write('\t\t\t<k>1</k>\n')
+        f.write(f'\t\t\t<density>{ModelPar[0]}</density>\n')
+        f.write(f'\t\t\t<E1>{ModelPar[1]}</E1>\n')
+        f.write(f'\t\t\t<E2>{ModelPar[2]}</E2>\n')
+        f.write(f'\t\t\t<E3>{ModelPar[3]}</E3>\n')
+        f.write(f'\t\t\t<G12>{ModelPar[4]}</G12>\n')
+        f.write(f'\t\t\t<G23>{ModelPar[5]}</G23>\n')
+        f.write(f'\t\t\t<G31>{ModelPar[6]}</G31>\n')
+        f.write(f'\t\t\t<v12>{ModelPar[7]}</v12>\n')
+        f.write(f'\t\t\t<v23>{ModelPar[8]}</v23>\n')
+        f.write(f'\t\t\t<v31>{ModelPar[9]}</v31>\n')
+        f.write(f'\t\t\t<c>{ModelPar[10]}</c>\n')
+        f.write(f'\t\t\t<k>{ModelPar[11]}</k>\n')
         f.write('\t\t</material>\n')
     elif ModelChoice == 'HGO':
         f.write('\t\t<material id="1" name="Material1" type="Holzapfel-Gasser-Ogden">\n')
-        f.write('\t\t\t<c>7.6</c>\n')
-        f.write('\t\t\t<k1>1000.0</k1>\n')
-        f.write('\t\t\t<k2>520.0</k2>\n')
-        f.write('\t\t\t<gamma>50.0</gamma>\n')
-        f.write('\t\t\t<kappa>0.20</kappa>\n')
-        f.write('\t\t\t<k>100000.0</k>\n')
+        f.write(f'\t\t\t<c>{ModelPar[0]}</c>\n')
+        f.write(f'\t\t\t<k1>{ModelPar[1]}</k1>\n')
+        f.write(f'\t\t\t<k2>{ModelPar[2]}</k2>\n')
+        f.write(f'\t\t\t<gamma>{ModelPar[3]}</gamma>\n')
+        f.write(f'\t\t\t<kappa>{ModelPar[4]}</kappa>\n')
+        f.write(f'\t\t\t<k>{ModelPar[5]}</k>\n')
         f.write('\t\t</material>\n')
                 
     f.write('\t</Material>\n')
@@ -228,12 +355,12 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
     f.write('\t<Mesh>\n')
     f.write('\t\t<Nodes name="Object01">\n')
     for i in range(num_pts):
-        f.write(f'\t\t\t<node id="{i+1}">{X[i,0]},{X[i,1]},{X[i,2]}</node>\n')
-    f.write('\t\t</Nodes>\n')
+        f.write(f'\t\t\t<node id="{i+1}">{X[i,0]},{X[i,1]},{X[i,2]}</node>\n')        
+        
+    f.write('\t\t</Nodes>\n')   
     
-    
-    if ModelChoice == 'tiMR' or ModelChoice == 'HGO_unc':
-        for i in range(nCells):
+    if ModelChoice == 'tiMR':
+        for i in range(num_cells):
             f.write(f'\t\t<Elements type="quad4" name="Part{i+1}">\n')
             c = pdi.GetCell(i)
             if c.GetNumberOfPoints()!=4:
@@ -254,27 +381,19 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
                 f.write(f',{1+c.GetPointId(j)}')
             f.write('</elem>\n')
         f.write('\t\t</Elements>\n')
+        
     
     #Create node sets to apply boundary conditions
     xd = vtk_to_numpy(in_pd.GetArray('VAJ')).astype(int)
     xd = np.where(xd==1)
-    # f.write('\t\t<NodeSet name="VAJ">\n')
-    # for i in range(len(xd[0])):
-    #     f.write(f'\t\t\t<n id="{1+xd[0][i]}"/>\n')
-    # f.write('\t\t</NodeSet>\n')
-    # xd = vtk_to_numpy(in_pd.GetArray('STJ')).astype(int)
-    # xd = np.where(xd==1)
-    # f.write('\t\t<NodeSet name="STJ">\n')
-    # for i in range(len(xd[0])):
-    #     f.write(f'\t\t\t<n id="{1+xd[0][i]}"/>\n')
-    # f.write('\t\t</NodeSet>\n')
-    for i in STJ_Id:
+    
+    for i,j in enumerate(STJ_Id):
         f.write('\t\t<NodeSet name="STJ_'+str(i+1)+'">\n')
-        f.write(f'\t\t\t<n id="{i+1}"/>\n')
+        f.write(f'\t\t\t<n id="{j+1}"/>\n')
         f.write('\t\t</NodeSet>\n')
-    for i in VAJ_Id:
+    for i,j in enumerate(VAJ_Id):
         f.write('\t\t<NodeSet name="VAJ_'+str(i+1)+'">\n')
-        f.write(f'\t\t\t<n id="{i+1}"/>\n')
+        f.write(f'\t\t\t<n id="{j+1}"/>\n')
         f.write('\t\t</NodeSet>\n')
     
     #Loading is applied on the same surface as the mesh
@@ -283,17 +402,18 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
         c = pdi.GetCell(i)
         if c.GetNumberOfPoints()!=4:
             raise ValueError()
-        f.write(f'\t\t\t<quad4 id="{i+1}">{1+c.GetPointId(0)}')
-        for j in range(1,4):
-            f.write(f',{1+c.GetPointId(j)}')
+        # f.write(f'\t\t\t<quad4 id="{i+1}">{1+c.GetPointId(0)}')
+        f.write(f'\t\t\t<quad4 id="{i+1}">{1+c.GetPointId(0)},{1+c.GetPointId(1)},{1+c.GetPointId(2)},{1+c.GetPointId(3)}')
+        # for j in range(1,4):
+        #     f.write(f',{1+c.GetPointId(j)}')
         f.write('</quad4>\n')
     f.write('\t\t</Surface>\n')
     f.write('\t</Mesh>\n')
     
     #Mesh domain assigns material to the surface
     f.write('\t<MeshDomains>\n')
-    if ModelChoice == 'tiMR' or ModelChoice == 'HGO_unc':
-        for i  in range(nCells):
+    if ModelChoice == 'tiMR':
+        for i  in range(num_cells):
             f.write(f'\t\t<ShellDomain name="Part{i+1}" mat="Material{i+1}">\n')
             f.write('\t\t\t<shell_normal_nodal>1</shell_normal_nodal>\n')
             f.write('\t\t</ShellDomain>\n')
@@ -304,10 +424,10 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
     f.write('\t</MeshDomains>\n')
     
     #Mesh data where we assign thickness (and possibly fiber directions)
-    thick = vtk_to_numpy(in_pd.GetArray('Thickness'))
+    #thick = vtk_to_numpy(in_pd.GetArray('Thickness'))
     f.write('\t<MeshData>\n')
-    if ModelChoice == 'tiMR' or ModelChoice == 'HGO_unc':
-        for i in range(nCells):
+    if ModelChoice == 'tiMR':
+        for i in range(num_cells):
             f.write(f'\t\t<ElementData var="shell thickness" elem_set="Part{i+1}">\n')
             c = pdi.GetCell(i)
             f.write(f'\t\t\t<e lid="1">{thick[c.GetPointId(0)]}')
@@ -323,37 +443,23 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
             for j in range(1,4):
                 f.write(f',{thick[c.GetPointId(j)]}')
             f.write('</elem>\n')
-        f.write('\t\t</ElementData>\n') 
-        if ModelChoice == 'HGO':
-            f.write('\t\t<ElementData var="mat_axis" elem_set="Part1">\n')
-            for i in range(num_cells):
-                f.write(f'\t\t\t<elem lid="{i+1}">\n')
-                f.write(f'\t\t\t\t<a>{Circ[i,0]},{Circ[i,1]},{Circ[i,2]}</a>\n')
-                f.write(f'\t\t\t\t<d>{-Long[i,0]},{-Long[i,1]},{-Long[i,2]}</d>\n')
-                f.write('\t\t\t</elem>\n')
-            f.write('\t\t</ElementData>\n')   
+        f.write('\t\t</ElementData>\n')  
     f.write('\t</MeshData>\n')
     
     #Boundary conditions
     f.write('\t<Boundary>\n')
-    # f.write('\t\t<bc name="FixedDisplacement1" type="fix" node_set="STJ">\n')
-    # f.write('\t\t\t<dofs>x,y,z</dofs>\n')
-    # f.write('\t\t</bc>\n')
-    # f.write('\t\t<bc name="FixedDisplacement1" type="fix" node_set="VAJ">\n')
-    # f.write('\t\t\t<dofs>x,y,z</dofs>\n')
-    # f.write('\t\t</bc>\n')
     for k, j in enumerate(['x','y','z']):
         for i, Id in enumerate(STJ_Id):
-            f.write('\t\t<bc name="STJ_'+str(Id+1)+'" type="prescribe" node_set="STJ_'+str(Id+1)+'">\n')
+            f.write('\t\t<bc name="STJ_'+str(i+1)+'" type="prescribe" node_set="STJ_'+str(i+1)+'">\n')
             f.write('\t\t\t<dof>'+j+'</dof>\n')
-            f.write('\t\t\t<scale lc="'+str(2+1+i + len(STJ_Id)*k)+'">1</scale>\n')
+            f.write('\t\t\t<scale lc="'+str(2+i + len(STJ_Id)*k)+'">1</scale>\n')
             f.write('\t\t\t<relative>0</relative>\n')
             f.write('\t\t</bc>\n')
     for k, j in enumerate(['x','y','z']):
         for i, Id in enumerate(VAJ_Id):
-            f.write('\t\t<bc name="VAJ_'+str(Id+1)+'" type="prescribe" node_set="VAJ_'+str(Id+1)+'">\n')
+            f.write('\t\t<bc name="VAJ_'+str(i+1)+'" type="prescribe" node_set="VAJ_'+str(i+1)+'">\n')
             f.write('\t\t\t<dof>'+j+'</dof>\n')
-            f.write('\t\t\t<scale lc="'+str(2+1+3*len(STJ_Id)+i + len(VAJ_Id)*k)+'">1</scale>\n')
+            f.write('\t\t\t<scale lc="'+str(2+3*len(STJ_Id)+i + len(VAJ_Id)*k)+'">1</scale>\n')
             f.write('\t\t\t<relative>0</relative>\n')
             f.write('\t\t</bc>\n')
     f.write('\t</Boundary>\n')
@@ -361,7 +467,10 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
     #Apply load due to pressure
     f.write('\t<Loads>\n')
     f.write('\t\t<surface_load name="PressureLoad1" type="pressure" surface="PressureLoad1">\n')
-    f.write('\t\t\t<pressure lc="2">-1.0</pressure>\n')
+    if ModelChoice == 'tiMR':
+        f.write(f'\t\t\t<pressure lc="1">{-PressureMag}</pressure>\n')
+    else:
+        f.write(f'\t\t\t<pressure lc="1">{PressureMag}</pressure>\n')
     f.write('\t\t\t<linear>0</linear>\n')
     f.write('\t\t\t<symmetric_stiffness>1</symmetric_stiffness>\n')
     f.write('\t\t</surface_load>\n')
@@ -372,32 +481,32 @@ def VTK2Feb_Func(DataDir,Fname,nF,nCells,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VA
     f.write('\t\t\t<interpolate>SMOOTH</interpolate>\n')
     f.write('\t\t\t<points>\n')
     for i in range(nF):
-        f.write('\t\t\t\t<point>' + str(TimeInterp[i]) + ',' + str(1/nF)+'</point>\n')
+        f.write('\t\t\t\t<point>' + str(round(i/(nF-1),7)) + ',' + str(PressureInterp[i])+'</point>\n')
     f.write('\t\t\t</points>\n')
     f.write('\t\t</load_controller>\n')
-    f.write('\t\t<load_controller id="2" type="loadcurve">\n')
-    f.write('\t\t\t<interpolate>SMOOTH</interpolate>\n')
-    f.write('\t\t\t<points>\n')
-    for i in range(nF):
-        f.write('\t\t\t\t<point>' + str(TimeInterp[i]) + ',' + str(PressureInterpStan[i])+'</point>\n')
-    f.write('\t\t\t</points>\n')
-    f.write('\t\t</load_controller>\n')
+    # f.write('\t\t<load_controller id="2" type="loadcurve">\n')
+    # f.write('\t\t\t<interpolate>SMOOTH</interpolate>\n')
+    # f.write('\t\t\t<points>\n')
+    # for i in range(nF):
+    #     f.write('\t\t\t\t<point>' + str(round(i/(nF-1),7)) + ',' + str(round(1/(nF-1),8))+'</point>\n')
+    # f.write('\t\t\t</points>\n')
+    # f.write('\t\t</load_controller>\n')
     for k, j in enumerate(['x','y','z']):
         for i in range(len(STJ_Id)):
-            f.write('\t\t<load_controller id="'+str(2+1+i + len(STJ_Id)*k)+'" type="loadcurve">\n')
+            f.write('\t\t<load_controller id="'+str(2+i + len(STJ_Id)*k)+'" type="loadcurve">\n')
             f.write('\t\t\t<interpolate>SMOOTH</interpolate>\n')
             f.write('\t\t\t<points>\n')
             for l in range(nF):
-                f.write('\t\t\t\t<point>' + str(TimeInterp[l]) + ',' + str(STJ_WallMotion[l,i,k])+'</point>\n')
+                f.write('\t\t\t\t<point>' + str(l/(nF-1)) + ',' + str(STJ_WallMotion[l,i,k])+'</point>\n')
             f.write('\t\t\t</points>\n')
             f.write('\t\t</load_controller>\n')
     for k, j in enumerate(['x','y','z']):
         for i in range(len(VAJ_Id)):
-            f.write('\t\t<load_controller id="'+str(2+1+3*len(STJ_Id)+i + len(VAJ_Id)*k)+'" type="loadcurve">\n')
+            f.write('\t\t<load_controller id="'+str(2+3*len(STJ_Id)+i + len(VAJ_Id)*k)+'" type="loadcurve">\n')
             f.write('\t\t\t<interpolate>SMOOTH</interpolate>\n')
             f.write('\t\t\t<points>\n')
             for l in range(nF):
-                f.write('\t\t\t\t<point>' + str(TimeInterp[l]) + ',' + str(VAJ_WallMotion[l,i,k])+'</point>\n')
+                f.write('\t\t\t\t<point>' + str(l/(nF-1)) + ',' + str(VAJ_WallMotion[l,i,k])+'</point>\n')
             f.write('\t\t\t</points>\n')
             f.write('\t\t</load_controller>\n')
     f.write('\t</LoadData>\n')
