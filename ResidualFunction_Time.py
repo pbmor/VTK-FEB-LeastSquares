@@ -15,12 +15,13 @@ from math import cos, sin, pi
 from math import exp as e
 from itertools import zip_longest
 
-def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice,FibChoice,Out):
+def SaveFiles(DataDir,FList,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice,FibChoice,Out):
     '''
     Read xplt file and save to remeshed vtk file and save as a new vtk file.
     
     Inputs:
     DataDir - Name of directory, e.g. 'tav02'
+    FList -- list of filenames
     RemeshedFile - Name of remeshed files
     Pts - Array of points
     Disp_Wall - Array of wall displacements for each point of mesh
@@ -33,13 +34,11 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,
     nF - Number of Frames
     CF - Id of the valve closing frame 
     PressureChoice - Choice to include pressure magnitude in least squares optimisation
-    ModelParChoice - Choice to include model parameters in least squares optimisation
     ProfileChoice - Choice of pressure profile shape function
     RunLSChoice - Choice to run least quares optimisation
     ResChoice -  Choice of residual calculation method 
     ModelChoice - Choice of constitutive model
     Out - Output of Least squares optimisation
-    
     '''
     
     #Name of existing .xplt file that has been created 
@@ -57,8 +56,8 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,
     nNodes, nElems, nVar, StateTimes, VarNames, VarType = GetMeshInfo(feb)
     
     #Collect the data
-    displacement = GetData(feb,'displacement',nStates,nVar)
-    stress = GetData(feb,'stress',nStates,nVar)
+    displacement = GetData(feb,'displacement',nStates)
+    stress = GetData(feb,'stress',nStates)
     
     #Gather stresses and displacements Note this is dependent on the Var Type
     Stress_X, Stress_Y, Stress_Z, Stress_XY, Stress_YZ, Stress_XZ = np.zeros((nStates,nElems)),np.zeros((nStates,nElems)),np.zeros((nStates,nElems)),np.zeros((nStates,nElems)),np.zeros((nStates,nElems)),np.zeros((nStates,nElems))
@@ -230,14 +229,14 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,
     
     print('Writing New Files...')
     
-    flist = glob.glob('./Remeshed/'+DataDir+'/*')
     
     #Order list to put reference frame first
-    FListOrdered, FId, refN = OrderList(flist, nF, RemeshedFile )
-        
+    FListOrdered, FId, refN = OrderList(FList, nF-1, RemeshedFile )
+    FListOrdered.append(FListOrdered[0])
+    FId = np.concatenate([FId,[FId[0]]],axis=0)
+    
     #Save a new vtk file for each state
     for j, fid in enumerate((FId.astype(int)-1)):
-        
         # Read the source file.
         reader.SetFileName(FListOrdered[j])
         reader.ReadAllScalarsOn()
@@ -305,7 +304,7 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,
         else:
             Conditions += 'PMagF_' 
             
-        if ModelParChoice:
+        if ModelChoice[0:3] != 'Set':
             Conditions += 'ModelT_'
         else:
             Conditions += 'ModelF_'
@@ -323,7 +322,7 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,
             RunDir = 'RunDefault'
         
         fname = './NewFiles/'+ DataDir+'/'+ModelChoice+'/'+RunDir + '/' + ProfileChoice+ '/' + Conditions+'/'+DataDir + '_' + str(fid+1)+'.vtk'
-        
+        print(fname)
         directory = os.path.dirname(fname)
         if not os.path.exists(directory):
             os.makedirs(directory)
@@ -339,11 +338,11 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,
         
     return nStates, Residual
     
-def OrderList(flist,N,ref):
+def OrderList(FList,N,ref):
     '''
     Reorders the list so that the first file is the reference file, and returns new list of filenames and their IDs 
     Keyword arguments:
-    flist -- list of filenames
+    FList -- list of filenames
     N -- number of files
     ref -- reference file name
     For example: for a list [file1.vtk, file2.vtk, file3.vtk, file4.vtk, file7.vtk, file8.vtk] and ref = file3.vtk
@@ -354,8 +353,8 @@ def OrderList(flist,N,ref):
     FId = np.zeros(N)
 
     FListOrdered = [None]*N
-    common = os.path.commonprefix(flist)
-    for i, Fname in enumerate(flist):
+    common = os.path.commonprefix(FList)
+    for i, Fname in enumerate(FList):
         X = Fname.replace(common,'')
         X = X.replace('.vtk','')
         X = np.fromstring(X, dtype=int, sep=' ')
@@ -378,7 +377,7 @@ def OrderList(flist,N,ref):
 
     # Get list of file names in new order
     for i,F in enumerate(FId):
-        for Fname in flist:
+        for Fname in FList:
             X = Fname.replace(common,'')
             X = X.replace('.vtk','')
             X = np.fromstring(X, dtype=int, sep=' ')
@@ -461,7 +460,6 @@ def GetPressure(C,nC,nF,CF,ProfileChoice,TimeInterp):
         last = (t>=99)*(t<100)
         Pressure = Rp*qi+Rd*qo
         PressureInterp = np.interp(np.linspace(99,100,nF),t[last],Pressure[last])
-        # PressureInterp = np.subtract(PressureInterp,PressureInterp[0])
     elif ProfileChoice[0:3] == 'Set':
         if ProfileChoice[3:] == 'Triangle':
             Peak = 0.5
@@ -521,12 +519,12 @@ def GetPressure(C,nC,nF,CF,ProfileChoice,TimeInterp):
             Pressure = Rp*qi+Rd*qo
             PressureInterp = np.interp(np.linspace(99,100,nF),t[last],Pressure[last])
         
-        PressureInterp = np.subtract(PressureInterp,min(PressureInterp))
-        PressureInterp = np.divide(PressureInterp,max(PressureInterp))
+    PressureInterp = np.subtract(PressureInterp,min(PressureInterp))
+    PressureInterp = np.divide(PressureInterp,max(PressureInterp))
         
     return PressureInterp
     
-def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,ProfileChoice,ResChoice,ModelChoice,FibChoice):
+def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ProfileChoice,ResChoice,ModelChoice,FibChoice):
     '''
     Function to calculate residual with a a given set of parameters
     
@@ -545,13 +543,11 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId
     nF - Number of Frames
     CF - Id of the valve closing frame 
     PressureChoice - Choice to include pressure magnitude in least squares optimisation
-    ModelParChoice - Choice to include model parameters in least squares optimisation
     ProfileChoice - Choice of pressure profile shape function
     RunLSChoice - Choice to run least quares optimisation
     ResChoice -  Choice of residual calculation method 
     ModelChoice - Choice of constitutive model
-    '''
-    
+    '''    
     #Define Timesteps
     TimeInterp = np.linspace(0,1,nF)
     
@@ -561,15 +557,14 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId
     nC = 0
     # Define pressure magnitude
     if PressureChoice:
-        if ModelChoice == 'tiMR':
-            tree.find('Loads').find('surface_load').find('pressure').text = str(-C[0])
-        else:
-            tree.find('Loads').find('surface_load').find('pressure').text = str(C[0])
-            
+        # if ModelChoice == 'tiMR':
+        tree.find('Loads').find('surface_load').find('pressure').text = str(-C[0])
+        # else:
+        #     tree.find('Loads').find('surface_load').find('pressure').text = str(C[0])
         nC += 1
     
     # Replace material properties with parameter estimates
-    if ModelParChoice:
+    if ModelChoice[0:3] != 'Set':
         if ModelChoice == 'MR':
             tree.find('Material').find('material').find('density').text = str(C[0+nC])
             tree.find('Material').find('material').find('c1').text      = str(C[1+nC])
@@ -619,12 +614,14 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId
             tree.find('Material').find('material').find('k').text       = str(C[11+nC])
             nC +=12
         elif ModelChoice == 'HGO':
-            tree.find('Material').find('material').find('c').text     = str(C[0+nC])
-            tree.find('Material').find('material').find('k1').text    = str(C[1+nC])
-            tree.find('Material').find('material').find('k2').text    = str(C[2+nC])
-            tree.find('Material').find('material').find('gamma').text = str(C[3+nC])
-            tree.find('Material').find('material').find('kappa').text = str(C[4+nC])
-            tree.find('Material').find('material').find('k').text     = str(C[5+nC])
+            TreeBranches = tree.find('Material').findall('material')
+            for i in range(nCls):
+                TreeBranches[i].find('c').text     = str(C[0+nC])
+                TreeBranches[i].find('k1').text    = str(C[1+nC])
+                TreeBranches[i].find('k2').text    = str(C[2+nC])
+                TreeBranches[i].find('gamma').text = str(C[3+nC])
+                # TreeBranches[i].find('kappa').text = str(C[4+nC])
+                # TreeBranches[i].find('k').text     = str(C[5+nC])
             nC +=6
      
         
@@ -641,8 +638,7 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId
         PressureInterp = GetPressure(C,nC,nF,CF,ProfileChoice,TimeInterp)
         for idx, Pt in enumerate(tree.find('LoadData').find('load_controller').find('points').findall("point")):
                 Pt.text = str(TimeInterp[idx])+','+str(PressureInterp[idx])
-            
-            
+               
     # Rewrite .feb file with paramter updates
     tree.write('./FEB_Files/' + DataDir + '.feb',xml_declaration=True,encoding="ISO-8859-1")
     
@@ -653,8 +649,8 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId
     # Define file of newly created .xplt file
     XPLTfilename = './FEB_Files/' + DataDir + '.xplt'
     
-    if ModelChoice == 'tiMR':
-        nDoms = nCls
+    if ModelChoice in ['MR']:
+        nDoms = 1
     else:
         nDoms = nCls
     
@@ -664,7 +660,7 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId
     nNodes, nElems, nVar, StateTimes, VarNames, VarType = GetMeshInfo(feb)
     
     #Collect the data, with all states
-    displacement = GetData(feb,'displacement',nStates,nVar)
+    displacement = GetData(feb,'displacement',nStates)
       
     #Gather stresses and displacements Note this is dependent on the Var Type
     Disp_X,Disp_Y,Disp_Z = np.zeros((nStates,nNodes)),np.zeros((nStates,nNodes)),np.zeros((nStates,nNodes))
@@ -748,7 +744,6 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId
                         for l in np.array(CellDistId[j][k]).astype(int):
                             CellPtSum[j][k].append(np.linalg.norm(np.subtract(VTK_Pts[i,j],FEB_Pts[i,l])))
                         CellTotalSum[j].append(np.sum(CellPtSum[j][k]))
-                    
                 
                 MinCl = np.argmin(CellTotalSum[j])
                 
@@ -775,10 +770,10 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId
                     
                     # Get distance between point and intersection
                     Res[i,j] =  np.linalg.norm(np.subtract(Pt,Intersect))
-            
+    
     return Res.flatten()
     
-def RunLS(DataDir,FListOrdered,FId,ref,CF,C,PressureChoice,ModelParChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice,FibChoice):
+def RunLS(DataDir,FListOrdered,FId,ref,CF,C,PressureChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice,FibChoice):
     '''
     Function to run the least squares 
     
@@ -790,7 +785,6 @@ def RunLS(DataDir,FListOrdered,FId,ref,CF,C,PressureChoice,ModelParChoice,Profil
     CF - Id of the valve closing frame 
     C - Initial Parameter estimation array
     PressureChoice - Choice to include pressure magnitude in least squares optimisation
-    ModelParChoice - Choice to include model parameters in least squares optimisation
     ProfileChoice - Choice of pressure profile shape function
     RunLSChoice - Choice to run least quares optimisation
     ResChoice -  Choice of residual calculation method 
@@ -882,10 +876,10 @@ def RunLS(DataDir,FListOrdered,FId,ref,CF,C,PressureChoice,ModelParChoice,Profil
         B_Min = []
         B_Max = []
         
-    if ModelParChoice:
+    if ModelChoice[0:3] != 'Set':
         if ModelChoice == 'MR':
             B_Min = np.concatenate((B_Min,[0,0,0,0]))
-            B_Max = np.concatenate((B_Max,[100,1000,1000,1000]))
+            B_Max = np.concatenate((B_Max,[100,1000,1000,2000]))
         if ModelChoice == 'tiMR':
             B_Min = np.concatenate((B_Min,[0,0,0,0,0,0,0,0]))
             B_Max = np.concatenate((B_Max,[1000,1000,1000,1000,1000,1000,1000,1000]))
@@ -896,8 +890,8 @@ def RunLS(DataDir,FListOrdered,FId,ref,CF,C,PressureChoice,ModelParChoice,Profil
             B_Min = np.concatenate((B_Min,[1,0,0,0,0,0,0,0,0,0,0,0]))
             B_Max = np.concatenate((B_Max,[10,10,10,10,10,10,10,10,10,10,10,10]))
         elif ModelChoice == 'HGO':
-            B_Min = np.concatenate((B_Min,[ 0,    0,  0,  0,   0,  0]))
-            B_Max = np.concatenate((B_Max,[10, 1000, 10, 50, 1/3, 100]))
+            B_Min = np.concatenate((B_Min,[ 0,    0,  0,  0]))
+            B_Max = np.concatenate((B_Max,[100, 1000, 100, 50]))
     else:
         B_Min = np.concatenate((B_Min,[]))
         B_Max = np.concatenate((B_Max,[]))
@@ -932,15 +926,15 @@ def RunLS(DataDir,FListOrdered,FId,ref,CF,C,PressureChoice,ModelParChoice,Profil
         B_Max = np.concatenate((B_Max,[100,100,100,100]))
     
     #Create .feb file of VTK remeshed case
-    #VTK2Feb_Func(DataDir,ref,nF,Disp_Wall_STJ,Disp_Wall_VAJ  ,STJ_Id,VAJ_Id,Circ_Cls,Long_Cls,Norm[0],ProfileChoice,ModelChoice,FibChoice,CF)
-    VTK2Feb_Func(DataDir,ref,C,nF,Disp_Wall_STJ,Disp_Wall_VAJ,STJ_Id,VAJ_Id,Circ_Cls,Long_Cls,Norm[0],PressureChoice,ProfileChoice,ModelChoice,ModelParChoice,FibChoice,CF)
+    VTK2Feb_Func(DataDir,ref,C,nF,Disp_Wall_STJ,Disp_Wall_VAJ,STJ_Id,VAJ_Id,Circ_Cls,Long_Cls,Norm[0],PressureChoice,ProfileChoice,ModelChoice,FibChoice,CF)
     
     #Choose to run Least Squares optimisation or just run febio simulation
     if RunLSChoice:
-        Out = least_squares(GetRes,C,bounds = [B_Min,B_Max],jac = '3-point', verbose=2,args=(DataDir,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,ProfileChoice,ResChoice,ModelChoice,FibChoice))
+        Out = least_squares(GetRes,C,bounds = [B_Min,B_Max],jac = '3-point', verbose=2,args=(DataDir,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ProfileChoice,ResChoice,ModelChoice,FibChoice))
         Cs = Out.x
     else:
-        os.system('/Applications/FEBioStudio/FEBioStudio.app/Contents/MacOS/febio3 -i '+ './FEB_Files/' + DataDir+'.feb')
+        os.system('/Applications/FEBioStudio3.5/FEBioStudio.app/Contents/MacOS/febio3 -i ./FEB_Files/' + DataDir+'.feb')
+        # os.system('/Applications/FEBioStudio/FEBioStudio.app/Contents/MacOS/febio3 -i '+ './FEB_Files/' + DataDir+'.feb >/dev/null 2>&1')
         Cs = C
      
     return Cs, Pts, Disp_Wall, Norm, Circ_Cls, Long_Cls, CellIds, nCls, STJ_Id, VAJ_Id
@@ -949,8 +943,9 @@ if __name__=='__main__':
     
     #Get location of example script
     DataDir = 'tav02'
-    flist = glob.glob('./Remeshed/'+DataDir+'/*')
-    nF = len(flist)
+    # FList = glob.glob('./Remeshed/'+DataDir+'/*')
+    FList = glob.glob('./ParSweep/Case_1/*.vtk')
+    nF = len(FList)
     
     #Get case info
     with open('echoframetime.csv') as csv_file:
@@ -964,8 +959,8 @@ if __name__=='__main__':
     CF = int(DataInfo[5])-refN
     
     #Get name of first and reference file
-    common = os.path.commonprefix(flist)
-    for Fname in list(flist):
+    common = os.path.commonprefix(FList)
+    for Fname in list(FList):
         X = Fname.replace(common,'')
         X = X.replace('.vtk','')
         X = np.fromstring(X, dtype=int, sep=' ')
@@ -974,16 +969,18 @@ if __name__=='__main__':
             ref=Fname
             
     #Order list to put reference frame first
-    FListOrdered, FId, refN = OrderList(flist, nF, ref)
+    FListOrdered, FId, refN = OrderList(FList, nF, ref)
+    FListOrdered.append(FListOrdered[0])
+    FId = np.concatenate([FId,[FId[0]]],axis=0)
+    nF+=1
     
     #Choose if data needs remeshed
-    PressureChoice = False           # Choose to vary pressure magnitude
-    ModelParChoice = True            # Choose to vary model parameters
-    RunLSChoice    = True            # Choose to run least Squares (or default/initial guess)
-    FibChoice      = False           # Choose to vary fiber direction, as an angle from the circumferential direction
-    ProfileChoice  = 'SetWindkessel' # Choose profile shapes, options are: 'Triangle', 'Step', 'SmoothStep', 'Virtual', 'Fourier','Fitted', 'Windkessel'
-    ResChoice      = 'CellPlane'     # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
-    ModelChoice    = 'MR'           # Choose model from 'MR','tiMR','Ogden' and 'Fung',  'HGO'
+    PressureChoice = False             # Choose to vary pressure magnitude
+    RunLSChoice    = False             # Choose to run least Squares (or default/initial guess)
+    FibChoice      = False             # Choose to vary fiber direction, as an angle from the circumferential direction
+    ProfileChoice  = 'SetWindkessel'   # Choose profile shapes, options are: 'Triangle', 'Step', 'SmoothStep', 'Virtual', 'Fourier','Fitted', 'Windkessel'
+    ResChoice      = 'P2P'             # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
+    ModelChoice    = 'HGO'             # Choose model from 'MR','tiMR','Ogden' and 'Fung',  'HGO'
     
     InitParams = [[],[],[],[]]
     
@@ -992,17 +989,17 @@ if __name__=='__main__':
         InitParams[0] = [1]
      
     # Choose initial model parameters
-    if ModelParChoice:
+    if ModelChoice[0:3] != 'Set':
         if ModelChoice == 'MR':
             InitParams[1] = [1,10,10,10]
         if ModelChoice == 'tiMR':
-            InitParams[0] = [10,10,10,10,10,10,10,10]
+            InitParams[1] = [10,14,0,2,60,600,100,10]
         elif ModelChoice == 'Ogden':
-            InitParams[0] = [1,10,10,10,10,10,10,10,10,10,10,10,10,10]
+            InitParams[1] = [1,10,10,10,10,10,10,10,10,10,10,10,10,10]
         elif ModelChoice == 'Fung':
-            InitParams[0] = [1,1,2,1.5,0.5,0.1,1,1.2,2,1.5,0.5,0.1]
+            InitParams[1] = [1,1,2,1.5,0.5,0.1,1,1.2,2,1.5,0.5,0.1]
         elif ModelChoice == 'HGO':     
-            InitParams[0] = [ 5,  415,  5, 28, 0.3, 10]
+            InitParams[1] = [100,25,90,25]#[ 5,  415,  5, 28]
       
     # Define initial fiber angle
     # Note if the chosen model is not 'tiMR' this parameter array will be made to be empty
@@ -1031,18 +1028,15 @@ if __name__=='__main__':
     if C.size == 0 and RunLS:
         print('Note: no parameters are being fitted, thus RunLSChoice is updated to be False')
         RunLSChoice == False
-    if ModelParChoice and not RunLSChoice:
-        print('Note: Parameters are not being fitted, thus ModelParChoice is updated to be False')
-        ModelParChoice = False
     
     #Create empty array for params
     Params = [['Condition'],['Choice'],['Model Parameter Name'],['Parameter Value'],['Pressure Parameter Name'],['Parameter Value'],['Model Time'],['Model Pressure'],['Interpolated Time'],['Interpolated Pressure']]
 
     #Run least squares script
-    Out, Pts, Disp_Wall, Norm, Circ, Long, CellIds, nCls, STJ_Id, VAJ_Id = RunLS(DataDir,FListOrdered,FId,ref,CF,C,PressureChoice,ModelParChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice,FibChoice)
+    Out, Pts, Disp_Wall, Norm, Circ, Long, CellIds, nCls, STJ_Id, VAJ_Id = RunLS(DataDir,FListOrdered,FId,ref,CF,C,PressureChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice,FibChoice)
     
     # Save new files
-    nStates,Residual = SaveFiles(DataDir,ref,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ModelParChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice,FibChoice,Out)
+    nStates,Residual = SaveFiles(DataDir,FList,ref,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice,FibChoice,Out)
 
     if nF != nStates:
         print('The number of frames in original dataset: ', nF)
@@ -1073,7 +1067,7 @@ if __name__=='__main__':
         print('Pressure Magnitude is Default')
         Conditions += 'PMagF_'
         
-    if ModelParChoice:
+    if ModelChoice[0:3] != 'Set':
         Conditions += 'ModelT_'
         Params[0].append('Model_Parameters')
         Params[1].append('True')
@@ -1124,8 +1118,8 @@ if __name__=='__main__':
         elif ModelChoice == 'HGO':
             Params[0].append('Model')
             Params[1].append('HGO')
-            nP = 6
-            ParamNames  = ['c','k1','k2','gamma','kappa','k']
+            nP = 4
+            ParamNames  = ['c','k1','k2','gamma']
             ParamValues = Out[nC:nC+nP+1]
             for i in range(nP):
                 print(ParamNames[i],': ',ParamValues[i])
@@ -1172,8 +1166,8 @@ if __name__=='__main__':
         elif ModelChoice == 'HGO':
             Params[0].append('Model')
             Params[1].append('HGO')
-            ParamNames  = ['c','k1','k2','gamma','kappa','k']
-            ParamValues = [ 5,  415,  5, 28, 0.3, 10]
+            ParamNames  = ['c','k1','k2','gamma']
+            ParamValues = [ 5,  415,  5, 28]
             for i in range(6):
                 Params[2].append(ParamNames[i])
                 Params[3].append(ParamValues[i])
