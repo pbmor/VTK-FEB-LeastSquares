@@ -5,18 +5,20 @@ import glob
 import vtk
 import matplotlib.pyplot as plt
 from math import cos, sin 
+from xml.etree import ElementTree as et
 from vtk.util.numpy_support import vtk_to_numpy
 from Read_XPLTfuncs import GetFEB, GetMeshInfo, GetData
 from ResidualFunction_Time import RunLS, OrderList, GetPressure
 from RemeshAll import Remesh_All
 from itertools import zip_longest
 
-def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice,FibChoice,Out,Count):
+def SaveFiles(DataDir,FList,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ProfileChoice,RunLSChoice,ResChoice,ModelChoice,FibChoice,Out,Count,SetP):
     '''
     Read xplt file and save to remeshed vtk file and save as a new vtk file.
     
     Inputs:
     DataDir - Name of directory, e.g. 'tav02'
+    FList -- list of filenames
     RemeshedFile - Name of remeshed files
     Pts - Array of points
     Disp_Wall - Array of wall displacements for each point of mesh
@@ -34,14 +36,110 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,
     ResChoice -  Choice of residual calculation method 
     ModelChoice - Choice of constitutive model
     Out - Output of Least squares optimisation
-    
     '''
+    # Use xml tree to update .feb file
+    tree = et.parse('./FEB_Files/' + DataDir + '.feb')
+    # Count the number of choices
+    nC = 0
+    # Define pressure magnitude
+    if PressureChoice:
+        if ModelChoice in ['MR','SetMR']:
+            tree.find('Loads').find('surface_load').find('pressure').text = str(C[0])
+        else:
+            tree.find('Loads').find('surface_load').find('pressure').text = str(-C[0])
+        nC += 1
+    
+    # Replace material properties with parameter estimates
+    if ModelChoice[0:3] != 'Set':
+        if ModelChoice == 'MR':
+            tree.find('Material').find('material').find('density').text = str(C[0+nC])
+            tree.find('Material').find('material').find('c1').text      = str(C[1+nC])
+            tree.find('Material').find('material').find('c2').text      = str(C[2+nC])
+            # tree.find('Material').find('material').find('k').text       = str(C[3+nC])
+            nC += 3
+        if ModelChoice == 'tiMR':
+            TreeBranches = tree.find('Material').findall('material')
+            for i in range(nCls):
+                TreeBranches[i].find('density').text = str(C[0+nC])
+                TreeBranches[i].find('c1').text = str(C[1+nC])
+                TreeBranches[i].find('c2').text = str(C[2+nC])
+                TreeBranches[i].find('c3').text = str(C[3+nC])
+                TreeBranches[i].find('c4').text = str(C[4+nC])
+                TreeBranches[i].find('c5').text = str(C[5+nC])
+                TreeBranches[i].find('lam_max').text = str(C[6+nC])
+                TreeBranches[i].find('k').text = str(C[7+nC])
+            nC += 8
+        elif ModelChoice == 'Ogden':
+            TreeBranches = tree.find('Material').findall('material')
+            for i in range(nCls):
+                TreeBranches[i].find('density').text  = str(C[0+nC])
+                TreeBranches[i].find('k').text  = str(C[1+nC])
+                TreeBranches[i].find('c1').text = str(C[2+nC])
+                TreeBranches[i].find('c2').text = str(C[3+nC])
+                TreeBranches[i].find('c3').text = str(C[4+nC])
+                TreeBranches[i].find('c4').text = str(C[5+nC])
+                TreeBranches[i].find('c5').text = str(C[6+nC])
+                TreeBranches[i].find('c6').text = str(C[7+nC])
+                TreeBranches[i].find('m1').text = str(C[8+nC])
+                TreeBranches[i].find('m2').text = str(C[9+nC])
+                TreeBranches[i].find('m3').text = str(C[10+nC])
+                TreeBranches[i].find('m4').text = str(C[11+nC])
+                TreeBranches[i].find('m5').text = str(C[12+nC])
+                TreeBranches[i].find('m6').text = str(C[13+nC])
+            nC +=14
+        elif ModelChoice == 'Fung':
+            TreeBranches = tree.find('Material').findall('material')
+            for i in range(nCls):
+                TreeBranches[i].find('density').text = str(C[0+nC])
+                TreeBranches[i].find('E1').text      = str(C[1+nC])
+                TreeBranches[i].find('E2').text      = str(C[2+nC])
+                TreeBranches[i].find('E3').text      = str(C[3+nC])
+                TreeBranches[i].find('G12').text     = str(C[4+nC])
+                TreeBranches[i].find('G23').text     = str(C[5+nC])
+                TreeBranches[i].find('G31').text     = str(C[6+nC])
+                TreeBranches[i].find('v12').text     = str(C[7+nC])
+                TreeBranches[i].find('v23').text     = str(C[8+nC])
+                TreeBranches[i].find('v31').text     = str(C[9+nC])
+                TreeBranches[i].find('c').text       = str(C[10+nC])
+                TreeBranches[i].find('k').text       = str(C[11+nC])
+            nC +=12
+        elif ModelChoice == 'HGO':
+            TreeBranches = tree.find('Material').findall('material')
+            for i in range(nCls):
+                TreeBranches[i].find('c').text     = str(C[0+nC])
+                TreeBranches[i].find('k1').text    = str(C[1+nC])
+                TreeBranches[i].find('k2').text    = str(C[2+nC])
+                TreeBranches[i].find('gamma').text = str(C[3+nC])
+            nC +=4
+     
+        
+        if FibChoice and ModelChoice == 'tiMR':
+            theta = C[0+nC]
+            for i in range(nCls):
+                C_tick = np.cross(np.cross(Circ[i],Long[i]),Circ[i])
+                New = np.dot(cos(theta),Circ[i]) + np.dot(sin(theta),C_tick)
+                TreeBranches[i].find('fiber').text = str(New[0])+str(',')+str(New[1])+str(',')+str(New[2])
+            nC += 1
+    
+    #Define Timesteps
+    TimeInterp = np.linspace(0,1,nF)        
+    #Get Pressure Profile
+    if ProfileChoice[0:3] != 'Set':
+        PressureInterp = GetPressure(C,nC,nF,CF,ProfileChoice,TimeInterp,SetP)
+        for idx, Pt in enumerate(tree.find('LoadData').find('load_controller').find('points').findall("point")):
+                Pt.text = str(TimeInterp[idx])+','+str(PressureInterp[idx])
+               
+    # Rewrite .feb file with paramter updates
+    tree.write('./FEB_Files/' + DataDir + '.feb',xml_declaration=True,encoding="ISO-8859-1")
+    
+    #Run updated .feb file to create new .xplt file
+    os.system('/Applications/FEBioStudio/FEBioStudio.app/Contents/MacOS/febio3 -i '+ './FEB_Files/' + DataDir+'.feb >/dev/null 2>&1')
     
     #Name of existing .xplt file that has been created 
     xpltName = './FEB_Files/' + DataDir + '.xplt'
     
-    if ModelChoice == 'tiMR':
-        nDoms = nCls
+    if ModelChoice in ['MR','SetMR']:
+        nDoms = 1
     else:
         nDoms = nCls
     
@@ -126,7 +224,10 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,
     #Define array of residuals
     if ResChoice == 'P2P':
         #P2P is 'point to point' and uses explicit differences in point positions
-        Residual = np.subtract(Disp_Wall,Disp_FEB_Interp)
+        Residual = np.zeros((nF,nNodes))
+        for i in range(nF):
+            for j in range(nNodes):
+                Residual[i,j] = np.linalg.norm(np.subtract(Disp_Wall[i,j],Disp_FEB_Interp[i,j]))
     elif ResChoice == 'CentreLine':
         nSTJ = len(STJ_Id)
         STJ_Cent = 0
@@ -224,15 +325,10 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,
     reader = vtk.vtkPolyDataReader()
     
     print('Writing New Files...')
-    
-    FList = glob.glob('./Remeshed/'+DataDir+'/*')
-    
     #Order list to put reference frame first
-    FListOrdered, FId, refN = OrderList(FList, nF, RemeshedFile )
-        
+    FListOrdered, FId, refN = OrderList(FList, nF-1, RemeshedFile )
     #Save a new vtk file for each state
-    for j, fid in enumerate((FId.astype(int)-1)):
-        
+    for j, fid in enumerate((FId.astype(int))):
         # Read the source file.
         reader.SetFileName(FListOrdered[j])
         reader.ReadAllScalarsOn()
@@ -312,29 +408,28 @@ def SaveFiles(DataDir,RemeshedFile,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,
         
         Conditions += ResChoice
         
-        if RunLSChoice:
-            RunDir = 'RunLS'
-        else:
-            RunDir = 'RunDefault'
-        
-        fname = './ParSweep/Case_'+str(Count)+'/'+DataDir + '_' + str(fid+1)+'.vtk'
+        fname = './ParSweep/'+DataDir+'/Case_'+str(Count)+'/'+DataDir + '_' + str(fid)+'.vtk'
+        print(fname)
         
         directory = os.path.dirname(fname)
         if not os.path.exists(directory):
             os.makedirs(directory)
-        
+            
         writer = vtk.vtkDataSetWriter()
         writer.SetFileName(fname)
         writer.SetInputData(polydata)
         writer.Write()
         
-        feb_name = './FEB_Files/'+ DataDir+'.feb'
+        feb_name  = './FEB_Files/'+ DataDir+'.feb'
+        xplt_name = './FEB_Files/'+ DataDir+'.xplt'
+        log_name  = './FEB_Files/'+ DataDir+'.log'
         
-        os.system('cp '+ feb_name + ' ./ParSweep/Case_'+str(Count)+'/')
+        os.system('cp '+ feb_name + ' ./ParSweep/'+DataDir+'/Case_'+str(Count)+'/')
+        os.system('cp '+ xplt_name + ' ./ParSweep/'+DataDir+'/Case_'+str(Count)+'/')
+        os.system('cp '+ log_name + ' ./ParSweep/'+DataDir+'/Case_'+str(Count)+'/')
         
     return nStates, Residual
-  
-    
+
     
 if __name__=='__main__':  
     #Choose parameter estimation choices
@@ -342,10 +437,10 @@ if __name__=='__main__':
     PressureChoice = False              # Choose to vary pressure magnitude
     RunLSChoice    = True               # Choose to run least Squares (or default/initial guess)
     FibChoice      = False              # Choose to vary fiber direction, as an angle from the circumferential direction
-    ProfileChoice  = ['SetWindkessel']  # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Virtual', 'Fourier','Fitted'm Windkessel'
+    ProfileChoice  = ['SetWindkessel']  # Choose profile shapes, options are: 'Triangle', 'Step', 'SmoothStep', 'Virtual', 'Fourier','Fitted', 'Windkessel'
     ResChoice      = ['CellPlane']      # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
     ModelChoice    = ['HGO']            # Choose model from 'MR','tiMR','Ogden' and 'Fung',  'HGO'
-    DataDirChoice  = 'Specific'              # Choose thewhich directories are to be included: 'Specfic', 'SpecificGroup', 'All_TAVs', 'All_BAVs','All'
+    DataDirChoice  = 'Specific'         # Choose thewhich directories are to be included: 'Specfic', 'SpecificGroup', 'All_TAVs', 'All_BAVs','All'
     
     
     # Code to run through all data sets
@@ -355,9 +450,9 @@ if __name__=='__main__':
     
     DataDirs = []
     if DataDirChoice == 'Specific':
-        DataDirs = ['tav02']
+        DataDirs = ['bav07']
     elif DataDirChoice == 'SpecificGroup':
-        DataDirs = ['tav04', 'tav06','tav11','tav20','tav23','tav26']
+        DataDirs = ['tav02', 'bav07']
     elif DataDirChoice == 'All_TAVs':
         for d in List_of_Subdirectories:
             DataDir = d.replace(CommonOfDir,'')
@@ -372,6 +467,12 @@ if __name__=='__main__':
         for d in List_of_Subdirectories:
             DataDir = d.replace(CommonOfDir,'')
             DataDirs.append(DataDir)
+    elif DataDirChoice == 'AllExcept':
+        Except = ['tav02']
+        for d in List_of_Subdirectories:
+            DataDir = d.replace(CommonOfDir,'')
+            if DataDir not in Except:
+                DataDirs.append(DataDir)
     
     
     for d in List_of_Subdirectories:
@@ -386,8 +487,7 @@ if __name__=='__main__':
     for DataDir in DataDirs:
         print('Running Data Set: ',DataDir)
     
-        # FList = glob.glob('./Remeshed/'+DataDir+'/*')
-        FList = glob.glob('./ParSweep/Case_1/*.vtk')
+        FList = glob.glob('./Remeshed/'+DataDir+'/*')
         
         nF = len(FList)
         
@@ -414,6 +514,9 @@ if __name__=='__main__':
                 
         #Order list to put reference frame first
         FListOrdered, FId, refN = OrderList(FList, nF, ref)
+        FListOrdered.append(FListOrdered[0])
+        FId = np.concatenate([FId,[FId[0]]],axis=0)
+        nF+=1
             
         for PC in ProfileChoice:
             for MC in ModelChoice:
@@ -423,54 +526,23 @@ if __name__=='__main__':
                     Residuals = []
                     Outs.append([])
                     Residuals.append([])
-                    with open('./NewFiles/tav02/HGO/RunLS/SetWindkessel/PMagF_ModelT_FibF_CellPlane/Parameters.csv') as csv_file:
-                        XLData = csv.reader(csv_file, delimiter=',')
-                        next(XLData, None)
-                        for row in XLData:
-                            if row[2] != '':
-                                Outs[0].append(row[3])
-                    FList_orig = glob.glob('./NewFiles/tav02/HGO/RunLS/SetWindkessel/PMagF_ModelT_FibF_CellPlane/*.vtk')
-                    
-                    #Get name of first and reference file
-                    common = os.path.commonprefix(FList_orig)
-                    for Fname in list(FList_orig):
-                        X = Fname.replace(common,'')
-                        X = X.replace('.vtk','')
-                        X = np.fromstring(X, dtype=int, sep=' ')
-                        X=X[0]
-                        if X==refN:
-                            ref_orig=Fname
-                            
-                    FListOrdered_orig, _, _ = OrderList(FList_orig, nF, ref_orig)
-                
-                    for X, Fname in enumerate(FListOrdered_orig):                            
-                        reader = vtk.vtkPolyDataReader()
-                        reader.SetFileName(Fname)
-                        reader.ReadAllScalarsOn()
-                        reader.ReadAllVectorsOn()
-                        reader.Update()
-                        
-                        polydata = reader.GetOutput()  
-                        # Pts = vtk_to_numpy(polydata.GetPoints().GetData())
-                        nPts = polydata.GetNumberOfPoints()
-                        Res = vtk_to_numpy(polydata.GetPointData().GetArray('Residual'))
-                        
-                        Residuals[0].append(Res)
                     Count = 0  
-                    Par1 = [0,0.5,1.0]
-                    Par2 = [0,0.5,1.0]
-                    Par3 = [0,0.5,1.0]
-                    Par4 = [0,0.5,1.0]
+                    Par1 = [1/3,2/3,1]
+                    Par2 = np.linspace(0,1,3)
+                    Par3 = [0.5]
+                    Par4 = np.linspace(0,1,3)
                     if NoVar:
                         Par1,Par2,Par3,Par4 = [1],[1],[1],[1]
                     for P1 in Par1:
                         for P2 in Par2:
                             for P3 in Par3:
                                 for P4 in Par4:
+                                    # Initialise empty array for Setting pressure parameters
+                                    SetP=[[],[]]
                             
                                     Count+=1
                                     print('Run Count:',Count)
-                                    HGOPars = [100,25,90,25]#[100*P1, 1000*P2, 100*P3, 50*P4]
+                                    HGOPars = [10*P1,1000*P2,1000*P3,90*P4] #[ 5,  415,  5, 28]#[100*P1, 1000*P2, 100*P3, 50*P4]
                                             
                                     print('Run Case:',HGOPars)
                                     # Initialise initial parameter arrays
@@ -478,20 +550,33 @@ if __name__=='__main__':
                                     
                                     # Choose initial estimate of pressure magnitude
                                     if PressureChoice:
-                                        InitParams[0] = [0.126]
+                                        InitParams[0] = [5]
+                                    else:
+                                        SetP[0] = [5]
                                      
                                     # Choose initial model parameters
                                     if ModelChoice[0:3] != 'Set':
                                         if MC == 'MR':
                                             InitParams[1] = [1,10,10,10]
                                         if MC == 'tiMR':
-                                            InitParams[0] = [10,10,10,10,10,10,10,10]
+                                            InitParams[1] = [10,10,10,10,10,10,10,10]
                                         elif MC == 'Ogden':
-                                            InitParams[0] = [1,10,10,10,10,10,10,10,10,10,10,10,10,10]
+                                            InitParams[1] = [1,10,10,10,10,10,10,10,10,10,10,10,10,10]
                                         elif MC == 'Fung':
-                                            InitParams[0] = [1,1,2,1.5,0.5,0.1,1,1.2,2,1.5,0.5,0.1]
+                                            InitParams[1] = [1,1,2,1.5,0.5,0.1,1,1.2,2,1.5,0.5,0.1]
                                         elif MC == 'HGO':     
-                                            InitParams[0] = HGOPars
+                                            InitParams[1] = HGOPars
+                                    else:   
+                                        if ModelChoice == 'SetMR':
+                                            ModelPar = [1,10,10,10]
+                                        if ModelChoice == 'SettiMR':
+                                            ModelPar = [10,10,10,10,10,10,10,10]
+                                        elif ModelChoice == 'SetOgden':
+                                            ModelPar = [1,10,10,10,10,10,10,10,10,10,10,10,10,10]
+                                        elif ModelChoice == 'SetFung':
+                                            ModelPar = [1,1,2,1.5,0.5,0.1,1,1.2,2,1.5,0.5,0.1]
+                                        elif ModelChoice == 'SetHGO':     
+                                            ModelPar =  [ 7.64,  996.6, 524.6, 49.98]
                                       
                                     # Define initial fiber angle
                                     # Note if the chosen model is not 'tiMR' this parameter array will be made to be empty
@@ -501,18 +586,32 @@ if __name__=='__main__':
                                     #Choose initial paramters for the pressure profile
                                     if PC == 'Triangle':
                                         InitParams[3] = [0.5]
-                                    if PC == 'Step':
+                                    elif PC == 'Step':
                                         InitParams[3] = [0.2, 0.5]
-                                    if PC == 'SmoothStep':
+                                    elif PC == 'SmoothStep':
                                         InitParams[3] = [0.2, 0.5,50,50]
-                                    if PC == 'Virtual':
+                                    elif PC == 'Virtual':
                                         InitParams[3] = []
-                                    if PC == 'Fourier':
+                                    elif PC == 'Fourier':
                                         InitParams[3] = [3.0, 1.0, 0.0, 0.05]
-                                    if PC == 'Fitted':
+                                    elif PC == 'Fitted':
                                         InitParams[3] = np.zeros(nF-2)
-                                    if PC == 'Windkessel':
-                                        InitParams[3] = [11,1.4,14,0.004]
+                                    elif PC == 'Windkessel':
+                                        InitParams[3] = [11, 1.4,14, 0.004]
+                                    elif PC == 'SetTriangle':
+                                        SetP[1] = [0.5]
+                                    elif PC == 'SetStep':
+                                        SetP[1] = [0.2, 0.5]
+                                    elif PC == 'SetSmoothStep':
+                                        SetP[1] = [0.2, 0.5,50,50]
+                                    elif PC == 'SetVirtual':
+                                        SetP[1] = []
+                                    elif PC == 'SetFourier':
+                                        SetP[1] = [3.0, 1.0, 0.0, 0.05]
+                                    elif PC == 'SetFitted':
+                                        SetP[1] = np.zeros(nF-2)
+                                    elif PC == 'SetWindkessel':
+                                        SetP[1] = [11, 1.4,14, 0.004]
                                     
                                     C = np.concatenate(InitParams, axis=0 )
                                     
@@ -522,10 +621,10 @@ if __name__=='__main__':
                                         RunLSChoice = False
                                         
                                     #Run least squares script
-                                    Out, Pts, Disp_Wall, Norm, Circ, Long, CellIds, nCls, STJ_Id, VAJ_Id = RunLS(DataDir,FListOrdered,FId,ref,CF,C,PressureChoice,PC,RunLSChoice,RC,MC,FibChoice)
+                                    Out, Pts, Disp_Wall, Norm, Circ, Long, CellIds, nCls, STJ_Id, VAJ_Id, Cost = RunLS(DataDir,FListOrdered,FId,ref,CF,C,PressureChoice,PC,RunLSChoice,RC,MC,FibChoice,SetP)
                                     
                                     # Save new files
-                                    nStates,Residual = SaveFiles(DataDir,FList,ref,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,PC,RunLSChoice,RC,MC,FibChoice,Out,Count)
+                                    nStates,Residual = SaveFiles(DataDir,FList,ref,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,PC,RunLSChoice,RC,MC,FibChoice,Out,Count,SetP)
                         
                                     Outs.append(Out)
                                     Residuals.append(Residual)
@@ -558,7 +657,7 @@ if __name__=='__main__':
                                         Params[0].append('Pressure_Magnitude')
                                         Params[1].append('False')
                                         Params[4].append('Pressure_Magnitude')
-                                        Params[5].append('1.0')
+                                        Params[5].append(SetP[0][0])
                                         print('Pressure Magnitude is Default')
                                         Conditions += 'PMagF_'
                                         
@@ -613,8 +712,9 @@ if __name__=='__main__':
                                         elif MC == 'HGO':
                                             Params[0].append('Model')
                                             Params[1].append('HGO')
-                                            nP = 4
-                                            ParamNames  = ['c','k1','k2','gamma','kappa','k']
+                                            nP = 3
+                                            # ParamNames  = ['c','k1','k2','gamma','kappa','k']
+                                            ParamNames  = ['c','k1','gamma']
                                             ParamValues = Out[nC:nC+nP+1]
                                             for i in range(nP):
                                                 print(ParamNames[i],': ',ParamValues[i])
@@ -623,32 +723,53 @@ if __name__=='__main__':
                                             for i in range(nP):
                                                 Params[2].append(ParamNames[i]+'_Starting')
                                                 Params[3].append(HGOPars[i])
-                                            nC+=6
+                                            nC+=3
                                     else:
                                         print('Model parameters not optimised')
                                         Conditions += 'ModelF_'
                                         Params[0].append('Model_Parameters')
-                                        Params[1].append('True')
-                                        if MC == 'MR':
+                                        Params[1].append('False')
+                                        if MC == 'SetMR':
                                             Params[0].append('Model')
                                             Params[1].append('MR')
-                                            nC +=4
-                                        elif MC == 'tiMR':
+                                            nP = 3
+                                            ParamNames  = ['density','C1','C2']
+                                            for i in range(3):
+                                                Params[2].append(ParamNames[i]+'_Starting')
+                                                Params[3].append(ModelPar[i])
+                                        elif MC == 'SettiMR':
                                             Params[0].append('Model')
                                             Params[1].append('tiMR')
-                                            nC +=8
-                                        elif MC == 'Ogden':
+                                            nP = 8
+                                            ParamNames  = ['density','C1','C2','C3','C4','C5','k','lam_max']
+                                            for i in range(nP):
+                                                Params[2].append(ParamNames[i]+'_Starting')
+                                                Params[3].append(ModelPar[i])
+                                        elif MC == 'SetOgden':
                                             Params[0].append('Model')
                                             Params[1].append('Ogden')
-                                            nC += 14 
-                                        elif MC == 'Fung':
+                                            nP = 14
+                                            ParamNames  = ['density','k','c1','c2','c3','c4','c5','c6','m1','m2','m3','m4','m5','m6']
+                                            for i in range(nP):
+                                                Params[2].append(ParamNames[i]+'_Starting')
+                                                Params[3].append(ModelPar[i])
+                                        elif MC == 'SetFung':
                                             Params[0].append('Model')
                                             Params[1].append('Fung')
-                                            nC +=12
-                                        elif MC == 'HGO':
+                                            nP = 12
+                                            ParamNames  = ['density','E1','E2','E3','G12','G23','G31','v12','v23','v31','c','k']
+                                            for i in range(nP):
+                                                Params[2].append(ParamNames[i]+'_Starting')
+                                                Params[3].append(ModelPar[i])
+                                        elif MC == 'SetHGO':
                                             Params[0].append('Model')
                                             Params[1].append('HGO')
-                                            nC+=6
+                                            nP = 4
+                                            ParamNames  = ['c','k1','k2','gamma']
+                                            for i in range(nP):
+                                                Params[2].append(ParamNames[i]+'_Starting')
+                                                Params[3].append(ModelPar[i])
+                
                                     
                                     if RunLSChoice:
                                         Params[0].append('Run_Least_Squares')
@@ -714,7 +835,7 @@ if __name__=='__main__':
                                     elif PC == 'SetTriangle':
                                         nP = 1
                                         ParamNames  = ['Pressure Peak']
-                                        ParamValues = [0.5]
+                                        ParamValues = SetP[1]
                                         for i in range(nP):
                                             print(ParamNames[i],': ',ParamValues[i])
                                             Params[4].append(ParamNames[i])
@@ -722,7 +843,7 @@ if __name__=='__main__':
                                     elif PC == 'SetStep':
                                         nP = 2
                                         ParamNames  = ['Pressure_Increase','Pressure_Decrease']
-                                        ParamValues = [0.2,0.5]
+                                        ParamValues = SetP[1]
                                         for i in range(nP):
                                             print(ParamNames[i],': ',ParamValues[i])
                                             Params[4].append(ParamNames[i])
@@ -730,7 +851,7 @@ if __name__=='__main__':
                                     elif PC == 'SetSmoothStep':
                                         nP = 4
                                         ParamNames  = ['Pressure_Increase','Pressure_Decrease','Increase_Angle','Decrease_Angle']
-                                        ParamValues = [0.2,0.5,50,50]
+                                        ParamValues = SetP[1]
                                         for i in range(nP):
                                             print(ParamNames[i],': ',ParamValues[i])
                                             Params[4].append(ParamNames[i])
@@ -738,7 +859,7 @@ if __name__=='__main__':
                                     elif PC == 'SetFourier':
                                         nP = 4
                                         ParamNames  = ['Fourier_a1','Fourier_a2','Fourier_a3','Fourier_a4']
-                                        ParamValues = [3.0,1.0,0.0,0.05]
+                                        ParamValues = SetP[1]
                                         for i in range(nP):
                                             print(ParamNames[i],': ',ParamValues[i])
                                             Params[4].append(ParamNames[i])
@@ -746,7 +867,7 @@ if __name__=='__main__':
                                     elif PC == 'SetFitted':
                                         nP = nF-2
                                         ParamNames  = ['Pressure_P_'+ str(i) for i in range(nF)]
-                                        ParamValues = np.zeros(nF)
+                                        ParamValues = SetP[1]
                                         for i in range(nP):
                                             print(ParamNames[i],': ',ParamValues[i])
                                             Params[4].append(ParamNames[i])
@@ -754,7 +875,7 @@ if __name__=='__main__':
                                     elif PC == 'SetWindkessel':
                                         nP = 4 
                                         ParamNames  = ['qi_mag','Rp','Rd','Cp']
-                                        ParamValues = [11,1.4,14,0.004]
+                                        ParamValues = SetP[1]
                                         for i in range(nP):
                                             print(ParamNames[i],': ',ParamValues[i])
                                             Params[4].append(ParamNames[i])
@@ -763,7 +884,7 @@ if __name__=='__main__':
                                     # Define Timesteps
                                     TimeData = np.linspace(0,1,nF)
                                     # Get Pressure Profile
-                                    PressureData = GetPressure(ParamValues,0,nF,CF,PC,TimeData)
+                                    PressureData = GetPressure(ParamValues,0,nF,CF,PC,TimeData,SetP)
                                     for i in range(len(TimeData)):
                                         Params[6].append(TimeData[i])
                                         Params[7].append(PressureData[i])
@@ -809,14 +930,15 @@ if __name__=='__main__':
                                     # Save Pressure Profile Choice
                                     Params[0].append('Residual_Choice')
                                     Params[1].append(RC)
+                
+                                    # Save Final Cost
+                                    Params[0].append('Cost')
+                                    Params[1].append(Cost)
                     
-                                    with open('./ParSweep/'+ 'Case_'+str(Count)+'/Parameters.csv','w') as result_file:
+                                    with open('./ParSweep/'+ DataDir+'/Case_'+str(Count)+'/Parameters.csv','w') as result_file:
                                         wr = csv.writer(result_file, dialect='excel')
                                         for values in zip_longest(*Params):
                                             wr.writerow(values)
-                                
-                                    # fname = './NewFiles/'+ DataDir+'/'+ModelChoice+'/'+RunDir + '/' + ProfileChoice+ '/' + Conditions+'/*'
-                                    # os.system('cp '+ fname + ' ./ParSweep/'+ 'Case_'+str(Count)+'/')
                                     
                                     XPLTfilename = './FEB_Files/' + DataDir + '.xplt'
                 
@@ -839,4 +961,4 @@ if __name__=='__main__':
                                     plt.xlabel('Time')
                                     plt.ylabel('Relative Residual (per node)')
     plt.show()
-            
+

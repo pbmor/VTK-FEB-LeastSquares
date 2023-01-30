@@ -6,17 +6,19 @@ import vtk
 from vtk.util.numpy_support import vtk_to_numpy
 import matplotlib.pyplot as plt
 from ResidualFunction_Time import OrderList
+from Read_XPLTfuncs import GetFEB
     
 #Choose parameter estimation choices
 PressureChoice = False              # Choose to vary pressure magnitude
-ModelParChoice = True               # Choose to vary model parameters
 RunLSChoice    = True               # Choose to run least Squares (or default/initial guess)
 FibChoice      = False              # Choose to vary fiber direction, as an angle from the circumferential direction
 ProfileChoice  = ['SetWindkessel']  # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Virtual', 'Fourier','Fitted'm Windkessel'
-ResChoice      = ['CellPlane']      # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
+ResChoice      = ['P2P']      # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
 ModelChoice    = ['HGO']            # Choose model from 'MR','tiMR','Ogden' and 'Fung',  'HGO'
-DataDirChoice  = 'All'              # Choose thewhich directories are to be included: 'Specfic', 'SpecificGroup', 'All_TAVs', 'All_BAVs','All'
+DataDirChoice  = 'Specific'              # Choose thewhich directories are to be included: 'Specfic', 'SpecificGroup', 'All_TAVs', 'All_BAVs','All'
 
+
+BonusDetails = ''
 
 # Code to run through all data sets
 List_of_Subdirectories = sorted(glob.glob('./Strains/medial_meshes/*'))
@@ -25,9 +27,9 @@ CommonOfDir = os.path.commonprefix(List_of_Subdirectories)
 
 DataDirs = []
 if DataDirChoice == 'Specific':
-    DataDirs = ['tav02']
+    DataDirs = ['bav01']
 elif DataDirChoice == 'SpecificGroup':
-    DataDirs = ['tav02','tav12','tav14','tav16']
+    DataDirs = ['bav01','tav02']
 elif DataDirChoice == 'All_TAVs':
     for d in List_of_Subdirectories:
         DataDir = d.replace(CommonOfDir,'')
@@ -42,18 +44,29 @@ elif DataDirChoice == 'All':
     for d in List_of_Subdirectories:
         DataDir = d.replace(CommonOfDir,'')
         DataDirs.append(DataDir)
+elif DataDirChoice == 'AllExcept':
+    Except = ['tav23','tav20','tav26']
+    for d in List_of_Subdirectories:
+        DataDir = d.replace(CommonOfDir,'')
+        if DataDir not in Except:
+            DataDirs.append(DataDir)
 
 ParamNames = []
 Residuals = []
 Residuals_Pts = []
+ModelTime = []
+ModelPressure = []
+PMag=[]
 nFs = []
+FTs = []
 for i, DataDir in enumerate(DataDirs):
     for PC in ProfileChoice:
         for MC in ModelChoice:
             for RC in ResChoice:
                 Residuals.append([])
+                Residuals_Pts.append([])
                 print('Running Data Set: ',DataDir)
-        
+                    
                 flist = glob.glob('./Remeshed/'+DataDir+'/*')
                 nF = len(flist)
                 nFs.append(nF)    
@@ -65,7 +78,7 @@ for i, DataDir in enumerate(DataDirs):
                 else:
                     Conditions += 'PMagF_'
                     
-                if ModelParChoice:
+                if MC[0:3]!='Set':
                     Conditions += 'ModelT_'
                     if MC == 'MR':
                         nC +=4
@@ -76,21 +89,20 @@ for i, DataDir in enumerate(DataDirs):
                     elif MC == 'Fung':
                         nC +=12
                     elif MC == 'HGO':
-                        nC+=6
+                        nC+=4
                 else:
                     print('Model parameters not optimised')
                     Conditions += 'ModelF_'
-                    if MC == 'MR':
+                    if MC[3:] == 'MR':
                         nC +=4
-                    elif MC == 'tiMR':
+                    elif MC[3:] == 'tiMR':
                         nC +=8
-                    elif MC == 'Ogden':
+                    elif MC[3:] == 'Ogden':
                         nC += 14 
-                    elif MC == 'Fung':
+                    elif MC[3:] == 'Fung':
                         nC +=12
-                    elif MC == 'HGO':
-                        
-                        nC+=6
+                    elif MC[3:] == 'HGO':
+                        nC+=4
                         
                 if PC == 'Triangle':
                     nC +=1
@@ -104,42 +116,7 @@ for i, DataDir in enumerate(DataDirs):
                     nC +=nF-2
                 elif ProfileChoice == 'Windkessel':
                     nC +=4
-                '''
-                elif PC == 'SetTriangle':
-                    nP = 1
-                    ParamNames  = ['Pressure Peak']
-                    ParamValues = [0.5]
-                elif PC == 'SetStep':
-                    nP = 2
-                    ParamNames  = ['Pressure_Increase','Pressure_Decrease']
-                    ParamValues = [0.2,0.5]
-                elif PC == 'SetSmoothStep':
-                    nP = 4
-                    ParamNames  = ['Pressure_Increase','Pressure_Decrease','Increase_Angle','Decrease_Angle']
-                    ParamValues = [0.2,0.5,50,50]
-                elif PC == 'SetFourier':
-                    nP = 4
-                    ParamNames  = ['Fourier_a1','Fourier_a2','Fourier_a3','Fourier_a4']
-                    ParamValues = [3.0,1.0,0.0,0.05]
-                elif PC == 'SetFitted':
-                    nP = nF-2
-                    ParamNames  = ['Pressure_P_'+ str(i) for i in range(nF)]
-                    ParamValues = np.zeros(nF)
-                elif PC == 'SetWindkessel':
-                    nP = 4 
-                    ParamNames  = ['qi_mag','Rp','Rd','Cp']
-                    ParamValues = [11,1.4,14,0.004]
-                
-                # Define Timesteps
-                TimeData = np.linspace(0,1,nF)
-                # Get Pressure Profile
-                PressureData = GetPressure(ParamValues,0,nF,CF,PC,TimeData)
                     
-                # Get Interpolated Data
-                TimeInterp = np.linspace(0,1,101)
-                PressureInterp = np.interp(TimeInterp,TimeData,PressureData)
-                PressureInterpStan = np.subtract(PressureInterp,np.min(PressureInterp))/np.max(np.subtract(PressureInterp,np.min(PressureInterp)))
-                '''    
                 if FibChoice and MC == 'tiMR':
                     Conditions += 'FibT_'
                 else:
@@ -169,6 +146,7 @@ for i, DataDir in enumerate(DataDirs):
                 
                 #Define Frame Time Length
                 FT = float(DataInfo[1])
+                FTs.append(FT)
                 #Define Open Frame and Close Frame
                 OF = DataInfo[4]
                 CF = DataInfo[5] 
@@ -176,17 +154,56 @@ for i, DataDir in enumerate(DataDirs):
                 #Get name of first and reference file
                 common = os.path.commonprefix(flist)
                 for Fname in list(flist):
-                    Residuals_Pts.append([])
+                    # Residuals_Pts[i].append([])
                     X = Fname.replace(common,'')
                     X = X.replace('.vtk','')
                     X = np.fromstring(X, dtype=int, sep=' ')
                     X=X[0]
                     if X==refN:
                         ref=Fname
-                        
+                
+                                 
+                reader = vtk.vtkPolyDataReader()
+                reader.SetFileName(Fname)
+                reader.ReadAllScalarsOn()
+                reader.ReadAllVectorsOn()
+                reader.Update()
+                
+                polydata = reader.GetOutput()  
+                
+                nPts = polydata.GetNumberOfPoints()
+                nCls = polydata.GetNumberOfCells()
+                
+                infile = './FEB_Files/'+DataDir+'.log'
+                
+                important = []
+                keep_phrases = ['N O R M A L']
+                
+                with open(infile) as f:
+                    f = f.readlines()
+                
+                for line in f:
+                    for phrase in keep_phrases:
+                        if phrase in line:
+                            important.append(line)
+                            break
+                if important == []:
+                    print('Error in Febio Run...')
+                    if MC in ['tiMR','HGO']:
+                        nDoms = nCls
+                    else:
+                        nDoms=1
+                    XPLTname = './FEB_Files/'+DataDir+'.xplt'
+                    _,_,nStates, _ = GetFEB(XPLTname,nDoms,False)
+                    if nF != nStates:
+                        print('Note: there is a discrepancy in the number of frames.')
+                        print('The number of simulated frames:', nStates)
+                        print('The number of expected frames:', nF)
+                    
                 FListOrdered, FId, refN = OrderList(flist, nF, ref)
             
-                for X, Fname in enumerate(FListOrdered):                            
+                for X, Fname in enumerate(FListOrdered):     
+                    print(X)                       
                     reader = vtk.vtkPolyDataReader()
                     reader.SetFileName(Fname)
                     reader.ReadAllScalarsOn()
@@ -194,11 +211,9 @@ for i, DataDir in enumerate(DataDirs):
                     reader.Update()
                     
                     polydata = reader.GetOutput()  
-                    # Pts = vtk_to_numpy(polydata.GetPoints().GetData())
-                    nPts = polydata.GetNumberOfPoints()
-                    Res = vtk_to_numpy(polydata.GetPointData().GetArray('Residual'))
-                    STJ = vtk_to_numpy(polydata.GetPointData().GetArray('STJ'))
-                    VAJ = vtk_to_numpy(polydata.GetPointData().GetArray('VAJ'))
+                    Res  = vtk_to_numpy(polydata.GetPointData().GetArray('Residual'))
+                    STJ  = vtk_to_numpy(polydata.GetPointData().GetArray('STJ'))
+                    VAJ  = vtk_to_numpy(polydata.GetPointData().GetArray('VAJ'))
                     
                     BoundIds = np.add(STJ,VAJ)
                     
@@ -209,25 +224,39 @@ for i, DataDir in enumerate(DataDirs):
                     
                     Residuals[i].append(sum(Res)/nPts)
                     if X!=refN:
-                        if np. sum(Residuals_Pts)==0:
-                            Residuals_Pts.append(Res_reduced)
+                        if np. sum(Residuals_Pts[i])==0:
+                            Residuals_Pts[i] = Res_reduced
                         else:
                             Residuals_Pts[i] += Res_reduced
-                # Residuals_Pts[i] /= nFs[i]
                 
+                ModelTime.append([])
+                ModelPressure.append([])
                 with open(FileDir+'Parameters.csv') as csv_file:
                     XLData = csv.reader(csv_file, delimiter=',')
                     next(XLData, None)
                     for row in XLData:
                         if row[2] != '':
-                            try:
-                                exec(row[2])
-                            except NameError:
-                                ParamNames.append(row[2])
-                                exec(row[2]+'=[]')
-                            exec(row[2]+'.append('+row[3]+')')
-                            print('Parameter:',row[2],' = ', row[3])
-                            
+                            if 'Starting' not in row[2]:
+                                try:
+                                    exec(row[2])
+                                except NameError:
+                                    
+                                    ParamNames.append(row[2])
+                                    exec(row[2]+'=[]')
+                                exec(row[2]+'.append('+row[3]+')')
+                                print('Parameter:',row[2],' = ', row[3])
+                        if row[4] == 'Pressure_Magnitude':
+                            exec('PMag.append('+row[5]+')')
+                        if row[6]!='':
+                            exec('ModelTime[i].append('+row[6]+')')
+                            exec('ModelPressure[i].append('+row[7]+')')
+  
+                    
+CaseName = Conditions+BonusDetails
+
+figname = 'Figures/'+CaseName +'/'  
+os.system('mkdir '+figname)
+
 nCases = len(DataDirs)
 Means = [] 
 Stds = []    
@@ -249,14 +278,21 @@ for i,name in enumerate(ParamNames):
     plt.plot(X_mean*np.ones(nCases),'k')
     plt.plot((X_mean+X_std)*np.ones(nCases),'--k',alpha = 0.4)
     plt.plot((X_mean-X_std)*np.ones(nCases),'--k',alpha = 0.4)
-    plt.xticks(CasesRange, DataDirs, rotation='vertical')
-    plt.ylabel(name)
-    # plt.boxplot(exec(name))    
+    plt.xticks(CasesRange, DataDirs, rotation='vertical',fontsize=13)
+    plt.yticks(fontsize=15)
+    plt.ylabel(name,fontsize=20)
+    # plt.boxplot(exec(name))  
     
+    
+    
+PMag_mean = np.mean(PMag)
+PMag_std  = np.std(PMag)
+print('PMag_mean = ',PMag_mean)
+print('PMag_std = ',PMag_std)    
     
 nBAV = 0
 nTAV = 0      
-if DataDirChoice == 'All':
+if DataDirChoice == 'AllExcept':
     for i,DataDir in enumerate(DataDirs):
         if DataDir[0] == 'b':
             nBAV += 1
@@ -281,44 +317,139 @@ if DataDirChoice == 'All':
         plt.fill_between(CasesRange[nBAV:],(X_TAVmean-X_TAVstd)*np.ones(nTAV),(X_TAVmean+X_TAVstd)*np.ones(nTAV),color='r',alpha=0.2)
     
 
+for i,name in enumerate(ParamNames):
+    plt.figure(i,figsize=(8, 6), dpi=300)
+    plt.savefig(name+'.png')
+    plt.tight_layout()
+    os.system('mv '+name+'.png '+figname+name+'.png')
+    
 AvgRes = [sum(Residuals[i])/nFs[i] for i in range(nCases)]
 
 plt.figure(i+1)
 plt.plot(CasesRange[0:nBAV],AvgRes[0:nBAV],'ob')
 plt.plot(CasesRange[nBAV:],AvgRes[nBAV:],'or')
-plt.xticks(CasesRange, DataDirs, rotation='vertical')
-plt.ylabel('Average Residual (per point per frame)')
+plt.xticks(CasesRange, DataDirs, rotation='vertical',fontsize=13)
+plt.yticks(fontsize=15)
+plt.ylabel('Average Residual (per point per frame)',fontsize=13)
+plt.savefig('AverageResidual.png')
+os.system('mv AverageResidual.png '+figname+'AverageResidual.png')
+
 plt.figure(i+2)
 plt.plot(nFs,'ok')
-plt.xticks(CasesRange, DataDirs, rotation='vertical')
-plt.ylabel('Number of Frames')
+plt.xticks(CasesRange, DataDirs, rotation='vertical',fontsize=13)
+plt.yticks(fontsize=15)
+plt.ylabel('Number of Frames',fontsize=20)
     
-Ind_Sort = (np.argsort(nFs)[i] for i in range(nCases))
-AvgRes_Sort = []
-DataDirs_Sort = []
-for i in Ind_Sort:
-    AvgRes_Sort.append(AvgRes[i])
-    DataDirs_Sort.append(DataDirs[i])  
+# Ind_Sort = (np.argsort(nFs)[i] for i in range(nCases))
+# AvgRes_Sort = []
+# DataDirs_Sort = []
+# for j in Ind_Sort:
+#     AvgRes_Sort.append(AvgRes[j])
+#     DataDirs_Sort.append(DataDirs[j])  
     
 plt.figure(i+3)
-plt.plot(AvgRes_Sort,'ok')
-plt.xticks(CasesRange, DataDirs_Sort, rotation='vertical')
-plt.ylabel('Average Residual (per point per frame)')
+plt.plot(AvgRes,'ok')
+plt.xticks(CasesRange, DataDirs, rotation='vertical',fontsize=13)
+plt.yticks(fontsize=15)
+plt.ylabel('Average Residual',fontsize=20)
+
+
+Res_Pts_Avg = []
+for j in range(nCases):
+    Residuals_Pts[i]
+    Res_Pts_Avg.append(np.divide(Residuals_Pts[j],nFs[j]))
 
 CasesRange = np.add(CasesRange,1)
 plt.figure(i+4)
 plt.boxplot(Residuals_Pts) 
-plt.xticks(CasesRange, DataDirs, rotation='vertical')
-plt.ylabel('Average Residual (per frame)')
+plt.xticks(CasesRange, DataDirs, rotation='vertical',fontsize=13)
+plt.yticks(fontsize=15)
+plt.ylabel('Residual',fontsize=20)
 
-Res_Pts_Avg = []
-for j in range(nCases):
-    Res_Pts_Avg.append(np.divide(Residuals_Pts[j],nFs[j]))
     
 plt.figure(i+5)
 plt.boxplot(Res_Pts_Avg) 
-plt.xticks(CasesRange, DataDirs, rotation='vertical')
-plt.ylabel('Average Residual (per frame)')
-plt.show()                     
+plt.xticks(CasesRange, DataDirs, rotation='vertical',fontsize=13)
+plt.yticks(fontsize=15)
+plt.ylabel('Residual (per frame)',fontsize=20) 
+plt.savefig('ResidualBoxplots.png')     
             
-             
+for j in range(nCases):
+    if DataDirs[j][0] == 'b':
+        plt.figure(i+6)
+        plt.plot(np.multiply(ModelTime[j],np.multiply(nFs[j],FTs[j])),ModelPressure[j],label=DataDirs[j])
+        plt.xticks(fontsize=15)
+        plt.yticks(fontsize=15)
+        plt.xlabel('Time (ms)',fontsize=20)
+        plt.ylabel('Pressure',fontsize=20)
+        plt.legend()
+        
+        plt.figure(i+7)
+        # plt.figure(figsize=(4,3))
+        plt.plot(np.multiply(ModelTime[j],np.multiply(nFs[j],FTs[j])),np.multiply(ModelPressure[j],PMag[j]),label=DataDirs[j])
+        plt.xticks(fontsize=15)
+        plt.yticks(fontsize=15)
+        plt.xlabel('Time (ms)',fontsize=20)
+        plt.ylabel('Pressure',fontsize=20)
+        plt.legend()
+        
+    else:
+        plt.figure(i+8)
+        plt.plot(np.multiply(ModelTime[j],np.multiply(nFs[j],FTs[j])),ModelPressure[j],label=DataDirs[j])
+        plt.xticks(fontsize=15)
+        plt.yticks(fontsize=15)
+        plt.xlabel('Time (ms)',fontsize=20)
+        plt.ylabel('Pressure',fontsize=20)
+        plt.legend()
+        
+        plt.figure(i+9)
+        # plt.figure(figsize=(4,3))
+        plt.plot(np.multiply(ModelTime[j],np.multiply(nFs[j],FTs[j])),np.multiply(ModelPressure[j],PMag[j]),label=DataDirs[j])
+        plt.xticks(fontsize=15)
+        plt.yticks(fontsize=15)
+        plt.xlabel('Time (ms)',fontsize=20)
+        plt.ylabel('Pressure',fontsize=20)
+        plt.legend()
+
+plt.figure(i+6)
+plt.savefig('BAVPressue_excMagnitude.png')
+os.system('mv BAVPressue_excMagnitude.png '+figname+'BAVPressue_excMagnitude.png')
+
+plt.figure(i+7)
+plt.savefig('BAVPressue_incMagnitude.png')
+os.system('mv BAVPressue_incMagnitude.png '+figname+'BAVPressue_incMagnitude.png')
+
+plt.figure(i+8)
+plt.savefig('TAVPressue_excMagnitude.png')
+os.system('mv TAVPressue_excMagnitude.png '+figname+'TAVPressue_excMagnitude.png')
+
+plt.figure(i+9)
+plt.savefig('TAVPressue_incMagnitude.png')
+os.system('mv TAVPressue_incMagnitude.png '+figname+'TAVPressue_incMagnitude.png')
+
+for j in range(nCases):
+    if DataDirs[j][0] == 'b':
+        plt.figure(i+10)
+        plt.plot(np.linspace(0,1,nFs[j]+1),np.concatenate([Residuals[j],[Residuals[j][0]]],axis=0),label=DataDirs[j])
+        plt.xticks(fontsize=15)
+        plt.yticks(fontsize=15)
+        plt.xlabel('Time (ms)',fontsize=20)
+        plt.ylabel('Residual',fontsize=20)
+        plt.legend()
+    if DataDirs[j][0] == 't':
+        plt.figure(i+11)
+        plt.plot(np.linspace(0,1,nFs[j]+1),np.concatenate([Residuals[j],[Residuals[j][0]]],axis=0),label=DataDirs[j])
+        plt.xticks(fontsize=15)
+        plt.yticks(fontsize=15)
+        plt.xlabel('Time (ms)',fontsize=20)
+        plt.ylabel('Residual',fontsize=20)
+        plt.legend()
+
+plt.figure(i+10)
+plt.savefig('BAVResiduals.png')
+os.system('mv BAVResiduals.png '+figname+'BAVResiduals.png')
+
+plt.figure(i+11)
+plt.savefig('TAVResiduals.png')
+os.system('mv TAVResiduals.png '+figname+'TAVResiduals.png')
+plt.show()             

@@ -83,11 +83,11 @@ def asHexString(x):
 
 class xplt_node(NodeMixin):
     def __init__(self,name,size=None,read=False,parent=None,children=None):
-        self.name = name
-        self.size = size
-        self.read = read
+        self.name   = name
+        self.size   = size
+        self.read   = read
         self.parent = parent
-        self.debug = False
+        self.debug  = False
         if children:
             self.children = children
 
@@ -107,10 +107,13 @@ class xplt_node(NodeMixin):
             raise ValueError("ID not met",self.name,lookup[asHexString(chunk[0])])
         if self.debug:
             print('Reading',self.name)
+            
         if self.name != 'FEB':
             self.size = np.fromfile(fid,dtype=np.uint32,count=1)[0]
+            
         if self.debug:
-            print('Reading',self.name,self.size)
+            print('Reading',self.name,self.size, asHexString(chunk[0]))
+            
         if self.read == True:
             if self.is_leaf:
                 if self.size>0:
@@ -368,13 +371,12 @@ class xpltObj:
                 self.Disp_Y[i,j]  = displacement[j*3+2]
                 self.Disp_Z[i,j]  = displacement[j*3+3]
         
-def GetData(feb,Var,States,nVar):
+def GetData(feb,Var,States):
     VarData = []
     VarDataObj = ReadObj(feb,'VARIABLE_DATA',[])
+    VarId = VarDataObj[0].index(Var)
     for i in range(States):
-        for j in range(nVar):
-            if VarDataObj[0][j] ==Var:
-                VarData.append(VarDataObj[j+3][i][0])
+        VarData.append(VarDataObj[VarId+3][i][0])
     return VarData
 
 def GetMeshInfo(feb):
@@ -469,7 +471,6 @@ def GetFEB(filename,nDoms, Tree):
         
     nodes = xplt_node('NODES',parent=node_header)
     dim   = xplt_node('DIM',parent=node_header)
-    name  = xplt_node('NAME',parent=node_header) 
     
     for domain in domains:
         
@@ -478,13 +479,10 @@ def GetFEB(filename,nDoms, Tree):
         elem_type = xplt_node('ELEM_TYPE',parent=domain_header)
         part_id = xplt_node('PART_ID',parent=domain_header)
         elements = xplt_node('ELEMENTS',parent=domain_header)
-        name = xplt_node('NAME',parent=domain_header)
         elem_type.set()
         elements.set()
-        name.set()
         
         element_list = xplt_node('ELEMENT_LIST',parent=domain)
-        # element_list.set()
 
     surface = xplt_node('SURFACE',parent=surface_section)
     
@@ -496,26 +494,24 @@ def GetFEB(filename,nDoms, Tree):
     state_data = []
     state_time = []
     state_unknown = []
-    global_data = []
     node_data = []
     domain_data = []
-    surface_data = []
     state_var_node = []
     variable_id_node = []
     variable_data_node = []
     state_var_domain = []
     variable_id_domain = []
     variable_data_domain = []
+    variable_data_domain = []
     
     for i in range(nstates):
         state_header.append(xplt_node('STATE_HEADER',parent=state_section[i]))
         state_time.append(xplt_node('STATE_TIME',parent=state_header[i]))
         state_unknown.append(xplt_node('STATE_UNKNOWN',parent=state_header[i]))
-            
+        
         state_unknown2.append(xplt_node('STATE_UNKNOWN2',parent=state_section[i]))
         state_data.append(xplt_node('STATE_DATA',parent=state_section[i]))
     
-        # global_data.append(xplt_node('GLOBAL_DATA',parent=state_data[i]))
         node_data.append(xplt_node('NODE_DATA',parent=state_data[i]))
         state_var_node.append(xplt_node('STATE_VAR',parent=node_data[i]))
         variable_id_node.append(xplt_node('VARIABLE_ID',parent=state_var_node[-1]))
@@ -530,7 +526,7 @@ def GetFEB(filename,nDoms, Tree):
             variable_id_domain.append(xplt_node('VARIABLE_ID',parent=state_var_domain[-1]))
             variable_data_domain.append(xplt_node('VARIABLE_DATA',parent=state_var_domain[-1]))
             variable_id_domain[-1].set()
-        variable_data_domain[-2].set()
+            variable_data_domain[-1].set()
         variable_data_domain[-1].set()
     
     nodeset_var.set()
@@ -551,6 +547,6 @@ def GetFEB(filename,nDoms, Tree):
     if Tree:
         for pre,fill,node in RenderTree(feb):
             treestr = u"%s%s" %(pre,node.name)
-            print(treestr.ljust(8),node.name,node.read)
+            print(treestr.ljust(8),node.name,node.read,node.size)
         
     return feb, file_size, nstates, mesh

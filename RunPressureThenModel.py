@@ -15,7 +15,7 @@ FibChoice      = False              # Choose to vary fiber direction, as an angl
 ProfileChoice  = ['Windkessel']     # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Virtual', 'Fourier','Fitted'm Windkessel'
 ResChoice      = ['P2P']            # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
 ModelChoice    = ['SetHGO']         # Choose model from 'MR','tiMR','Ogden' and 'Fung',  'HGO'
-DataDirChoice  = 'AllExcept'        # Choose which directories are to be included: 'Specfic', 'SpecificGroup', 'All_TAVs', 'All_BAVs','All','AllExcept'
+DataDirChoice  = 'All'        # Choose which directories are to be included: 'Specfic', 'SpecificGroup', 'All_TAVs', 'All_BAVs','All','AllExcept'
 
 # Code to run through all data sets
 List_of_Subdirectories = sorted(glob.glob('./Strains/medial_meshes/*'))
@@ -299,35 +299,45 @@ for DId, DataDir in enumerate(DataDirs):
                     print('Model parameters not optimised')
                     Conditions += 'ModelF_'
                     Params[0].append('Model_Parameters')
-                    Params[1].append('True')
+                    Params[1].append('False')
                     if MC == 'SetMR':
                         Params[0].append('Model')
                         Params[1].append('MR')
+                        nP = 3
+                        ParamNames  = ['density','C1','C2']
                         for i in range(3):
                             Params[2].append(ParamNames[i]+'_Starting')
                             Params[3].append(ModelPar[i])
                     elif MC == 'SettiMR':
                         Params[0].append('Model')
                         Params[1].append('tiMR')
-                        for i in range(8):
+                        nP = 8
+                        ParamNames  = ['density','C1','C2','C3','C4','C5','k','lam_max']
+                        for i in range(nP):
                             Params[2].append(ParamNames[i]+'_Starting')
                             Params[3].append(ModelPar[i])
                     elif MC == 'SetOgden':
                         Params[0].append('Model')
                         Params[1].append('Ogden')
-                        for i in range(14):
+                        nP = 14
+                        ParamNames  = ['density','k','c1','c2','c3','c4','c5','c6','m1','m2','m3','m4','m5','m6']
+                        for i in range(nP):
                             Params[2].append(ParamNames[i]+'_Starting')
                             Params[3].append(ModelPar[i])
                     elif MC == 'SetFung':
                         Params[0].append('Model')
                         Params[1].append('Fung')
-                        for i in range(12):
+                        nP = 12
+                        ParamNames  = ['density','E1','E2','E3','G12','G23','G31','v12','v23','v31','c','k']
+                        for i in range(nP):
                             Params[2].append(ParamNames[i]+'_Starting')
                             Params[3].append(ModelPar[i])
                     elif MC == 'SetHGO':
                         Params[0].append('Model')
                         Params[1].append('HGO')
-                        for i in range(4):
+                        nP = 4
+                        ParamNames  = ['c','k1','k2','gamma']
+                        for i in range(nP):
                             Params[2].append(ParamNames[i]+'_Starting')
                             Params[3].append(ModelPar[i])
                 
@@ -763,37 +773,48 @@ for DId, DataDir in enumerate(DataDirs):
                     print('Model parameters not optimised')
                     Conditions += 'ModelF_'
                     Params[0].append('Model_Parameters')
-                    Params[1].append('True')
+                    Params[1].append('False')
                     if MC == 'SetMR':
                         Params[0].append('Model')
                         Params[1].append('MR')
+                        nP = 3
+                        ParamNames  = ['density','C1','C2']
                         for i in range(3):
                             Params[2].append(ParamNames[i]+'_Starting')
                             Params[3].append(ModelPar[i])
                     elif MC == 'SettiMR':
                         Params[0].append('Model')
                         Params[1].append('tiMR')
-                        for i in range(8):
+                        nP = 8
+                        ParamNames  = ['density','C1','C2','C3','C4','C5','k','lam_max']
+                        for i in range(nP):
                             Params[2].append(ParamNames[i]+'_Starting')
                             Params[3].append(ModelPar[i])
                     elif MC == 'SetOgden':
                         Params[0].append('Model')
                         Params[1].append('Ogden')
-                        for i in range(14):
+                        nP = 14
+                        ParamNames  = ['density','k','c1','c2','c3','c4','c5','c6','m1','m2','m3','m4','m5','m6']
+                        for i in range(nP):
                             Params[2].append(ParamNames[i]+'_Starting')
                             Params[3].append(ModelPar[i])
                     elif MC == 'SetFung':
                         Params[0].append('Model')
                         Params[1].append('Fung')
-                        for i in range(12):
+                        nP = 12
+                        ParamNames  = ['density','E1','E2','E3','G12','G23','G31','v12','v23','v31','c','k']
+                        for i in range(nP):
                             Params[2].append(ParamNames[i]+'_Starting')
                             Params[3].append(ModelPar[i])
                     elif MC == 'SetHGO':
                         Params[0].append('Model')
                         Params[1].append('HGO')
-                        for i in range(4):
+                        nP = 4
+                        ParamNames  = ['c','k1','k2','gamma']
+                        for i in range(nP):
                             Params[2].append(ParamNames[i]+'_Starting')
                             Params[3].append(ModelPar[i])
+                
                 
                 if RunLSChoice:
                     Params[0].append('Run_Least_Squares')
