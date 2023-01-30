@@ -627,7 +627,7 @@ def GetPressure(C,nC,nF,CF,ProfileChoice,TimeInterp,SetP):
         
     return PressureInterp
     
-def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ProfileChoice,ResChoice,ModelChoice,FibChoice):
+def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ProfileChoice,ResChoice,ModelChoice,FibChoice,SetP):
     '''
     Function to calculate residual with a a given set of parameters
     
@@ -650,6 +650,8 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId
     RunLSChoice - Choice to run least quares optimisation
     ResChoice -  Choice of residual calculation method 
     ModelChoice - Choice of constitutive model
+    FibChoice - Choice to fit fibers in tiMR
+    SetP - Array of parameters for a Set Pressure
     '''    
     #Define Timesteps
     TimeInterp = np.linspace(0,1,nF)
@@ -792,10 +794,10 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId
     # Define method of calculating residuals
     if ResChoice == 'P2P':
         #P2P is 'point to point' and uses explicit differences in point positions
-        Residual = np.zeros((nF,nNodes))
+        Res = np.zeros((nF,nNodes))
         for i in range(nF):
             for j in range(nNodes):
-                Residual[i,j] = np.linalg.norm(np.subtract(Disp_Wall[i,j],Disp_FEB_Interp[i,j]))
+                Res[i,j] = np.linalg.norm(np.subtract(Disp_Wall[i,j],Disp_FEB_Interp[i,j]))
     elif ResChoice == 'CentreLine':
         # Define using difference in the distances from centre line
         nSTJ = len(STJ_Id)
@@ -1059,7 +1061,7 @@ def RunLS(DataDir,FListOrdered,FId,ref,CF,C,PressureChoice,ProfileChoice,RunLSCh
     
     #Choose to run Least Squares optimisation or just run febio simulation
     if RunLSChoice:
-        Out = least_squares(GetRes,C,bounds = [B_Min,B_Max],jac = '3-point', verbose=2,args=(DataDir,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ProfileChoice,ResChoice,ModelChoice,FibChoice))
+        Out = least_squares(GetRes,C,bounds = [B_Min,B_Max],jac = '3-point', verbose=2,args=(DataDir,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ProfileChoice,ResChoice,ModelChoice,FibChoice,SetP))
         Cs = Out.x
         Cost = Out.cost
     else:
@@ -1307,7 +1309,7 @@ if __name__=='__main__':
         Conditions += 'ModelF_'
         Params[0].append('Model_Parameters')
         Params[1].append('True')
-        if MC == 'SetMR':
+        if ModelChoice == 'SetMR':
             Params[0].append('Model')
             Params[1].append('MR')
             nP = 3
@@ -1315,7 +1317,7 @@ if __name__=='__main__':
             for i in range(3):
                 Params[2].append(ParamNames[i]+'_Starting')
                 Params[3].append(ModelPar[i])
-        elif MC == 'SettiMR':
+        elif ModelChoice == 'SettiMR':
             Params[0].append('Model')
             Params[1].append('tiMR')
             nP = 8
@@ -1323,7 +1325,7 @@ if __name__=='__main__':
             for i in range(nP):
                 Params[2].append(ParamNames[i]+'_Starting')
                 Params[3].append(ModelPar[i])
-        elif MC == 'SetOgden':
+        elif ModelChoice == 'SetOgden':
             Params[0].append('Model')
             Params[1].append('Ogden')
             nP = 14
@@ -1331,7 +1333,7 @@ if __name__=='__main__':
             for i in range(nP):
                 Params[2].append(ParamNames[i]+'_Starting')
                 Params[3].append(ModelPar[i])
-        elif MC == 'SetFung':
+        elif ModelChoice == 'SetFung':
             Params[0].append('Model')
             Params[1].append('Fung')
             nP = 12
@@ -1339,7 +1341,7 @@ if __name__=='__main__':
             for i in range(nP):
                 Params[2].append(ParamNames[i]+'_Starting')
                 Params[3].append(ModelPar[i])
-        elif MC == 'SetHGO':
+        elif ModelChoice == 'SetHGO':
             Params[0].append('Model')
             Params[1].append('HGO')
             nP = 4

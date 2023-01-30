@@ -7,15 +7,15 @@ from vtk.util.numpy_support import vtk_to_numpy
 import matplotlib.pyplot as plt
 from ResidualFunction_Time import OrderList
 from Read_XPLTfuncs import GetFEB
-    
+
 #Choose parameter estimation choices
 PressureChoice = False              # Choose to vary pressure magnitude
 RunLSChoice    = True               # Choose to run least Squares (or default/initial guess)
 FibChoice      = False              # Choose to vary fiber direction, as an angle from the circumferential direction
-ProfileChoice  = ['SetWindkessel']  # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Virtual', 'Fourier','Fitted'm Windkessel'
-ResChoice      = ['P2P']      # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
-ModelChoice    = ['HGO']            # Choose model from 'MR','tiMR','Ogden' and 'Fung',  'HGO'
-DataDirChoice  = 'Specific'              # Choose thewhich directories are to be included: 'Specfic', 'SpecificGroup', 'All_TAVs', 'All_BAVs','All'
+ProfileChoice  = ['SetWindkessel']     # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Virtual', 'Fourier','Fitted'm Windkessel'
+ResChoice      = ['P2P']            # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
+ModelChoice    = ['HGO']         # Choose model from 'MR','tiMR','Ogden' and 'Fung', 'HGO'
+DataDirChoice  = 'Specific'         # Choose which directories are to be included: 'Specfic', 'SpecificGroup', 'All_TAVs', 'All_BAVs','All','AllExcept'
 
 
 BonusDetails = ''
@@ -27,7 +27,7 @@ CommonOfDir = os.path.commonprefix(List_of_Subdirectories)
 
 DataDirs = []
 if DataDirChoice == 'Specific':
-    DataDirs = ['bav01']
+    DataDirs = ['tav02']
 elif DataDirChoice == 'SpecificGroup':
     DataDirs = ['bav01','tav02']
 elif DataDirChoice == 'All_TAVs':
@@ -202,8 +202,7 @@ for i, DataDir in enumerate(DataDirs):
                     
                 FListOrdered, FId, refN = OrderList(flist, nF, ref)
             
-                for X, Fname in enumerate(FListOrdered):     
-                    print(X)                       
+                for X, Fname in enumerate(FListOrdered):
                     reader = vtk.vtkPolyDataReader()
                     reader.SetFileName(Fname)
                     reader.ReadAllScalarsOn()
@@ -224,7 +223,7 @@ for i, DataDir in enumerate(DataDirs):
                     
                     Residuals[i].append(sum(Res)/nPts)
                     if X!=refN:
-                        if np. sum(Residuals_Pts[i])==0:
+                        if np.sum(Residuals_Pts[i])==0:
                             Residuals_Pts[i] = Res_reduced
                         else:
                             Residuals_Pts[i] += Res_reduced
@@ -281,9 +280,6 @@ for i,name in enumerate(ParamNames):
     plt.xticks(CasesRange, DataDirs, rotation='vertical',fontsize=13)
     plt.yticks(fontsize=15)
     plt.ylabel(name,fontsize=20)
-    # plt.boxplot(exec(name))  
-    
-    
     
 PMag_mean = np.mean(PMag)
 PMag_std  = np.std(PMag)
@@ -340,13 +336,6 @@ plt.xticks(CasesRange, DataDirs, rotation='vertical',fontsize=13)
 plt.yticks(fontsize=15)
 plt.ylabel('Number of Frames',fontsize=20)
     
-# Ind_Sort = (np.argsort(nFs)[i] for i in range(nCases))
-# AvgRes_Sort = []
-# DataDirs_Sort = []
-# for j in Ind_Sort:
-#     AvgRes_Sort.append(AvgRes[j])
-#     DataDirs_Sort.append(DataDirs[j])  
-    
 plt.figure(i+3)
 plt.plot(AvgRes,'ok')
 plt.xticks(CasesRange, DataDirs, rotation='vertical',fontsize=13)
@@ -356,7 +345,6 @@ plt.ylabel('Average Residual',fontsize=20)
 
 Res_Pts_Avg = []
 for j in range(nCases):
-    Residuals_Pts[i]
     Res_Pts_Avg.append(np.divide(Residuals_Pts[j],nFs[j]))
 
 CasesRange = np.add(CasesRange,1)
@@ -385,7 +373,6 @@ for j in range(nCases):
         plt.legend()
         
         plt.figure(i+7)
-        # plt.figure(figsize=(4,3))
         plt.plot(np.multiply(ModelTime[j],np.multiply(nFs[j],FTs[j])),np.multiply(ModelPressure[j],PMag[j]),label=DataDirs[j])
         plt.xticks(fontsize=15)
         plt.yticks(fontsize=15)
@@ -403,7 +390,6 @@ for j in range(nCases):
         plt.legend()
         
         plt.figure(i+9)
-        # plt.figure(figsize=(4,3))
         plt.plot(np.multiply(ModelTime[j],np.multiply(nFs[j],FTs[j])),np.multiply(ModelPressure[j],PMag[j]),label=DataDirs[j])
         plt.xticks(fontsize=15)
         plt.yticks(fontsize=15)

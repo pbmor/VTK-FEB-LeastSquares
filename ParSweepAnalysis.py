@@ -64,30 +64,15 @@ plt.show()
 B_Min = [ 0,    0,  0,  0]
 B_Max = [100, 1000, 100, 50]
 j=0
-# for j, name in enumerate(ParamNames):
-#     plt.figure(j)
-#     exec('plt.plot('+name+')') 
-#     plt.xlabel(name)
-#     plt.ylim((B_Min[j],B_Max[j]*1.1))
-#     plt.ylabel(name+', Parameter Estimation')
-
-# for j,name in enumerate(ParamNames):
-#     plt.figure(j)
-#     plt.savefig(name+'.png')
-#     os.system('mv '+name+'.png '+figname+name+'.png')
     
 for i, name in enumerate(ParamNames):
     plt.figure(j+i+1)
     exec('plt.hist('+name+')') 
     plt.xlabel(name)
-    # plt.ylim((B_Min[j],B_Max[j]*1.1))
-    # plt.ylabel(name+', Parameter Estimation')
 
 for i,name in enumerate(ParamNames):
     plt.figure(j+i+1)
     plt.savefig(name+'.png')
     os.system('mv '+name+'.png '+figname+name+'.png')
     
-
-
 plt.show() 

@@ -575,7 +575,7 @@ for DId, DataDir in enumerate(DataDirs):
     for PC in ProfileChoice:
         for MC in ModelChoice:
             for RC in ResChoice:
-                SetP = [[0],[1]]
+                SetP = [[],[]]
                 # Initialise initial parameter arrays
                 InitParams = [[],[],[],[]]
                 
@@ -583,7 +583,7 @@ for DId, DataDir in enumerate(DataDirs):
                 if PressureChoice:
                     InitParams[0] = PressureMags[DId]
                 else:
-                    SetP[0] = PressureMags[DId]
+                    SetP[0] = [PressureMags[DId]]
                  
                 # Choose initial model parameters
                 if ModelChoice[0:3] != 'Set':
