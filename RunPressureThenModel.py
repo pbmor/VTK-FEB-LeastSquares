@@ -112,7 +112,7 @@ for DId, DataDir in enumerate(DataDirs):
                     SetP[0]=[5]
                  
                 # Choose initial model parameters
-                if ModelChoice[0:3] != 'Set':
+                if MC[0:3] != 'Set':
                     if MC == 'MR':
                         InitParams[1] = [1,200,250]
                     elif MC == 'tiMR':

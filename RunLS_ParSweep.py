@@ -555,7 +555,7 @@ if __name__=='__main__':
                                         SetP[0] = [5]
                                      
                                     # Choose initial model parameters
-                                    if ModelChoice[0:3] != 'Set':
+                                    if MC[0:3] != 'Set':
                                         if MC == 'MR':
                                             InitParams[1] = [1,10,10,10]
                                         if MC == 'tiMR':
