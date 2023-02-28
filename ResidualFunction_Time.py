@@ -728,8 +728,8 @@ def GetRes(C,DataDir,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId
                 TreeBranches[i].find('c').text     = str(C[0+nC])
                 TreeBranches[i].find('k1').text    = str(C[1+nC])
                 TreeBranches[i].find('k2').text    = str(C[2+nC])
-                TreeBranches[i].find('gamma').text = str(C[2+nC])
-            nC +=3
+                TreeBranches[i].find('gamma').text = str(C[3+nC])
+            nC +=4
         
         if FibChoice and ModelChoice == 'tiMR':
             theta = C[0+nC]
@@ -1061,7 +1061,7 @@ def RunLS(DataDir,FListOrdered,FId,ref,CF,C,PressureChoice,ProfileChoice,RunLSCh
     
     #Choose to run Least Squares optimisation or just run febio simulation
     if RunLSChoice:
-        Out = least_squares(GetRes,C,bounds = [B_Min,B_Max],jac = '3-point', verbose=2,args=(DataDir,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ProfileChoice,ResChoice,ModelChoice,FibChoice,SetP))
+        Out = least_squares(GetRes,C,bounds = [B_Min,B_Max],jac = '3-point', max_nfev = 40,verbose=2,args=(DataDir,Pts,Disp_Wall,Norm,Circ_Cls,Long_Cls,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,ProfileChoice,ResChoice,ModelChoice,FibChoice,SetP))
         Cs = Out.x
         Cost = Out.cost
     else:
@@ -1083,7 +1083,7 @@ if __name__=='__main__':
     ModelChoice    = 'HGO'             # Choose model from 'MR','tiMR','Ogden' and 'Fung',  'HGO'
     
     #Get location of example script
-    DataDir = 'tav02'
+    DataDir = 'bav07'
     FList = glob.glob('./Remeshed/'+DataDir+'/*')
     nF = len(FList)
     

@@ -8,13 +8,6 @@ from ResidualFunction_Time import RunLS, SaveFiles, OrderList, GetPressure
 from RemeshAll import Remesh_All
 from itertools import zip_longest
 
-#Choose parameter estimation choices
-PressureChoice = True               # Choose to vary pressure magnitude
-RunLSChoice    = True               # Choose to run least Squares (or default/initial guess)
-FibChoice      = False              # Choose to vary fiber direction, as an angle from the circumferential direction
-ProfileChoice  = ['Windkessel']     # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Virtual', 'Fourier','Fitted'm Windkessel'
-ResChoice      = ['P2P']            # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
-ModelChoice    = ['SetHGO']         # Choose model from 'MR','tiMR','Ogden' and 'Fung',  'HGO'
 DataDirChoice  = 'All'        # Choose which directories are to be included: 'Specfic', 'SpecificGroup', 'All_TAVs', 'All_BAVs','All','AllExcept'
 
 # Code to run through all data sets
@@ -24,7 +17,7 @@ CommonOfDir = os.path.commonprefix(List_of_Subdirectories)
 
 DataDirs = []
 if DataDirChoice == 'Specific':
-    DataDirs = ['tav02']
+    DataDirs = ['bav07']
 elif DataDirChoice == 'SpecificGroup':
     # DataDirs = ['bav01','tav02','bav02','tav04','bav07','tav06','bav08','tav11','bav12','tav12','bav13','tav14','bav23','tav16','tav20','tav23','tav26']
     DataDirs = ['bav01','tav04']#,'bav02','tav06']
@@ -58,11 +51,21 @@ for d in List_of_Subdirectories:
         for OF in OriginalFiles:
             if OF[-4:]==".vtp"or OF[-4:]==".vtk":
                 Remesh_All(DataDir,OF)
+                
 PressureMags   = []
 PressureParams = []
 CostsPressure  = []
 CostsFinal     = []
 for DId, DataDir in enumerate(DataDirs):
+    
+    #Choose parameter estimation choices
+    PressureChoice = True               # Choose to vary pressure magnitude
+    RunLSChoice    = True               # Choose to run least Squares (or default/initial guess)
+    FibChoice      = False              # Choose to vary fiber direction, as an angle from the circumferential direction
+    ProfileChoice  = ['Windkessel']     # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Virtual', 'Fourier','Fitted'm Windkessel'
+    ResChoice      = ['P2P']            # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
+    ModelChoice    = ['SetHGO']         # Choose model from 'MR','tiMR','Ogden' and 'Fung',  'HGO'
+    
     print('Running Data Set: ',DataDir)
     print('Running Pressure Optimisation...')
     
@@ -182,9 +185,9 @@ for DId, DataDir in enumerate(DataDirs):
                 PressureMags.append(Out[0])
                 PressureParams.append(Out[1:])
                 CostsPressure.append(Cost)
+                print('Cost: ',Cost)
                 # Save new files
                 nStates,Residual = SaveFiles(DataDir,FList,ref,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,PC,RunLSChoice,RC,MC,FibChoice,Out,SetP)
-    
                 
                 # Initialise Parameter Array to be saved as csv
                 Params = [['Condition'],['Choice'],['Model Parameter Name'],['Parameter Value'],['Pressure Parameter Name'],['Parameter Value'],['Model Time'],['Model Pressure'],['Interpolated Time'],['Interpolated Pressure']]
@@ -584,6 +587,7 @@ for DId, DataDir in enumerate(DataDirs):
                     InitParams[0] = PressureMags[DId]
                 else:
                     SetP[0] = [PressureMags[DId]]
+                    # SetP[0] = [5]
                  
                 # Choose initial model parameters
                 if ModelChoice[0:3] != 'Set':
@@ -656,9 +660,10 @@ for DId, DataDir in enumerate(DataDirs):
                 
                 CostsFinal.append(Cost)
                 
+                print('Cost: ',Cost)
+                
                 # Save new files
                 nStates,Residual = SaveFiles(DataDir,FList,ref,Pts,Disp_Wall,Norm,Circ,Long,CellIds,nCls,STJ_Id,VAJ_Id,FId,nF,CF,PressureChoice,PC,RunLSChoice,RC,MC,FibChoice,Out,SetP)
-    
                 
                 # Initialise Parameter Array to be saved as csv
                 Params = [['Condition'],['Choice'],['Model Parameter Name'],['Parameter Value'],['Pressure Parameter Name'],['Parameter Value'],['Model Time'],['Model Pressure'],['Interpolated Time'],['Interpolated Pressure']]
@@ -676,7 +681,7 @@ for DId, DataDir in enumerate(DataDirs):
                     Params[0].append('Pressure_Magnitude')
                     Params[1].append('True')
                     nP = 1
-                    ParamNames = ['Pressure_Magnitude']
+                    ParamNames = ['P_Mag']
                     ParamValues = [Out[0]]
                     for i in range(nP):
                         print(ParamNames[i],': ',ParamValues[i])
@@ -692,7 +697,7 @@ for DId, DataDir in enumerate(DataDirs):
                     Params[1].append('False')
                     Params[4].append('Pressure_Magnitude')
                     Params[5].append(SetP[0][0])
-                    print('Pressure Magnitude is Default')
+                    print('P_Mag : ',PressureMags[DId])
                     Conditions += 'PMagF_'
                     
                 if MC[0:3] != 'Set':

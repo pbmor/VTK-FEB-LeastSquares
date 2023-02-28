@@ -58,7 +58,7 @@ def VTK2Feb_Func(DataDir,Fname,C,nF,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VAJ_Id,
             ModelPar = C[nC:nC+12]
             nC += 12
         elif ModelChoice == 'HGO':     
-            ModelPar = C[nC:nC+6]
+            ModelPar = C[nC:nC+4]
     else:   
         if ModelChoice == 'MR':
             ModelPar = [1,10,10,10]
@@ -265,8 +265,8 @@ def VTK2Feb_Func(DataDir,Fname,C,nF,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VAJ_Id,
     #Solver settings
     f.write('\t<Control>\n')
     f.write('\t\t<analysis>STATIC</analysis>\n')
-    f.write('\t\t<time_steps>100</time_steps>\n')
-    f.write('\t\t<step_size>0.01</step_size>\n')
+    f.write('\t\t<time_steps>200</time_steps>\n')
+    f.write('\t\t<step_size>0.005</step_size>\n')
     f.write('\t\t<plot_level>PLOT_MUST_POINTS</plot_level>\n')
     f.write('\t\t<solver>\n')
     f.write('\t\t\t<max_refs>15</max_refs>\n')
@@ -283,7 +283,7 @@ def VTK2Feb_Func(DataDir,Fname,C,nF,STJ_WallMotion,VAJ_WallMotion,STJ_Id,VAJ_Id,
     f.write('\t\t</solver>\n')
 
     f.write('\t\t<time_stepper>\n')
-    f.write('\t\t\t<dtmin>0.01</dtmin>\n')
+    f.write('\t\t\t<dtmin>0.0001</dtmin>\n')
     f.write('\t\t\t<dtmax lc="2">1</dtmax>\n')
     f.write('\t\t\t<max_retries>10</max_retries>\n')
     f.write('\t\t\t<opt_iter>10</opt_iter>\n')

@@ -15,7 +15,7 @@ FibChoice      = False              # Choose to vary fiber direction, as an angl
 ProfileChoice  = ['SetWindkessel']     # Choose profile shapes, options are: 'Triangle','Step','SmoothStep','Virtual', 'Fourier','Fitted'm Windkessel'
 ResChoice      = ['P2P']            # Choose type of residual calculation method: 'P2P', 'CentreLine', 'CellPlane'
 ModelChoice    = ['HGO']         # Choose model from 'MR','tiMR','Ogden' and 'Fung', 'HGO'
-DataDirChoice  = 'Specific'         # Choose which directories are to be included: 'Specfic', 'SpecificGroup', 'All_TAVs', 'All_BAVs','All','AllExcept'
+DataDirChoice  = 'AllExcept'         # Choose which directories are to be included: 'Specfic', 'SpecificGroup', 'All_TAVs', 'All_BAVs','All','AllExcept'
 
 
 BonusDetails = ''
@@ -45,7 +45,7 @@ elif DataDirChoice == 'All':
         DataDir = d.replace(CommonOfDir,'')
         DataDirs.append(DataDir)
 elif DataDirChoice == 'AllExcept':
-    Except = ['tav23','tav20','tav26']
+    Except = ['bav07','tav12']
     for d in List_of_Subdirectories:
         DataDir = d.replace(CommonOfDir,'')
         if DataDir not in Except:
